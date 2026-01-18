@@ -57,33 +57,6 @@ fi
 convert_wildcard_to_regex() {
     local pattern="$1"
 
-    # Normalize path separators (convert \ to /)
-    pattern="${pattern//\\//}"
-
-    # Escape regex special characters except * and ?
-    # Order matters: escape \ first, then other chars
-    pattern=$(echo "$pattern" | sed 's/\./\\./g; s/\^/\\^/g; s/\$/\\$/g; s/\[/\\[/g; s/\]/\\]/g; s/(/\\(/g; s/)/\\)/g; s/{/\\{/g; s/}/\\}/g; s/+/\\+/g; s/|/\\|/g')
-
-    # Convert ** first (placeholder to avoid collision with *)
-    pattern="${pattern//\*\*/<<<DOUBLESTAR>>>}"
-    # Convert * to [^/]* (any chars except path separator)
-    pattern="${pattern//\*/[^/]*}"
-    # Convert placeholder back to .* (any chars including path separator)
-    pattern="${pattern//<<<DOUBLESTAR>>>/.}"
-    pattern="${pattern//./.\\*}"  # Actually make it .*
-    pattern="${pattern//.\\*/*}"  # Fix the escaping
-    # Actually, let me redo this properly:
-    pattern=$(echo "$pattern" | sed 's/<<<DOUBLESTAR>>>/.*/g')
-    # Convert ? to . (single character)
-    pattern="${pattern//\?/.}"
-
-    echo "^${pattern}$"
-}
-
-# Actually, let me rewrite the convert function more carefully
-convert_wildcard_to_regex() {
-    local pattern="$1"
-
     # Normalize path separators
     pattern="${pattern//\\//}"
 
@@ -137,8 +110,11 @@ test_path_matches_pattern() {
     base_path="${base_path%/}"  # Remove trailing slash
 
     # Make path relative to base path (case-insensitive comparison for Windows compatibility)
-    local lower_path="${path,,}"
-    local lower_base="${base_path,,}"
+    # Use tr for POSIX compatibility (macOS ships with Bash 3.2 which doesn't support ${var,,})
+    local lower_path
+    local lower_base
+    lower_path=$(echo "$path" | tr '[:upper:]' '[:lower:]')
+    lower_base=$(echo "$base_path" | tr '[:upper:]' '[:lower:]')
 
     if [[ "$lower_path" == "$lower_base"* ]]; then
         local relative_path="${path:${#base_path}}"
@@ -429,47 +405,47 @@ get_bash_target_paths() {
     # rm command
     while read -r match; do
         [[ -n "$match" && ! "$match" =~ ^- ]] && paths+=("$match")
-    done < <(echo "$command" | grep -oE '\brm\s+(-[rRfiv]+\s+)*([^\s|;&]+)' | sed -E 's/\brm\s+(-[rRfiv]+\s+)*//g' | tr -d "'" | tr -d '"')
+    done < <(echo "$command" | grep -oE '\brm\s+(-[rRfiv]+\s+)*([^ |;&]+)' | sed -E 's/\brm\s+(-[rRfiv]+\s+)*//g' | tr -d "'" | tr -d '"')
 
     # mv command (both source and dest)
     while read -r match; do
         [[ -n "$match" && ! "$match" =~ ^- ]] && paths+=("$match")
-    done < <(echo "$command" | grep -oE '\bmv\s+(-[fiv]+\s+)*[^\s|;&]+\s+[^\s|;&]+' | sed -E 's/\bmv\s+(-[fiv]+\s+)*//g' | tr ' ' '\n' | tr -d "'" | tr -d '"')
+    done < <(echo "$command" | grep -oE '\bmv\s+(-[fiv]+\s+)*[^ |;&]+\s+[^ |;&]+' | sed -E 's/\bmv\s+(-[fiv]+\s+)*//g' | tr ' ' '\n' | tr -d "'" | tr -d '"')
 
     # cp command (both source and dest)
     while read -r match; do
         [[ -n "$match" && ! "$match" =~ ^- ]] && paths+=("$match")
-    done < <(echo "$command" | grep -oE '\bcp\s+(-[rRfiv]+\s+)*[^\s|;&]+\s+[^\s|;&]+' | sed -E 's/\bcp\s+(-[rRfiv]+\s+)*//g' | tr ' ' '\n' | tr -d "'" | tr -d '"')
+    done < <(echo "$command" | grep -oE '\bcp\s+(-[rRfiv]+\s+)*[^ |;&]+\s+[^ |;&]+' | sed -E 's/\bcp\s+(-[rRfiv]+\s+)*//g' | tr ' ' '\n' | tr -d "'" | tr -d '"')
 
     # touch command
     while read -r match; do
         [[ -n "$match" && ! "$match" =~ ^- ]] && paths+=("$match")
-    done < <(echo "$command" | grep -oE '\btouch\s+[^\s|;&]+' | sed 's/\btouch\s*//g' | tr -d "'" | tr -d '"')
+    done < <(echo "$command" | grep -oE '\btouch\s+[^ |;&]+' | sed 's/\btouch\s*//g' | tr -d "'" | tr -d '"')
 
     # mkdir command
     while read -r match; do
         [[ -n "$match" && ! "$match" =~ ^- ]] && paths+=("$match")
-    done < <(echo "$command" | grep -oE '\bmkdir\s+(-p\s+)?[^\s|;&]+' | sed -E 's/\bmkdir\s+(-p\s+)?//g' | tr -d "'" | tr -d '"')
+    done < <(echo "$command" | grep -oE '\bmkdir\s+(-p\s+)?[^ |;&]+' | sed -E 's/\bmkdir\s+(-p\s+)?//g' | tr -d "'" | tr -d '"')
 
     # rmdir command
     while read -r match; do
         [[ -n "$match" && ! "$match" =~ ^- ]] && paths+=("$match")
-    done < <(echo "$command" | grep -oE '\brmdir\s+[^\s|;&]+' | sed 's/\brmdir\s*//g' | tr -d "'" | tr -d '"')
+    done < <(echo "$command" | grep -oE '\brmdir\s+[^ |;&]+' | sed 's/\brmdir\s*//g' | tr -d "'" | tr -d '"')
 
     # Output redirection > or >>
     while read -r match; do
         [[ -n "$match" && ! "$match" =~ ^- ]] && paths+=("$match")
-    done < <(echo "$command" | grep -oE '>\s*[^\s|;&>]+' | sed 's/>\s*//g' | tr -d "'" | tr -d '"')
+    done < <(echo "$command" | grep -oE '>\s*[^ |;&>]+' | sed 's/>\s*//g' | tr -d "'" | tr -d '"')
 
     # tee command
     while read -r match; do
         [[ -n "$match" && ! "$match" =~ ^- ]] && paths+=("$match")
-    done < <(echo "$command" | grep -oE '\btee\s+(-a\s+)?[^\s|;&]+' | sed -E 's/\btee\s+(-a\s+)?//g' | tr -d "'" | tr -d '"')
+    done < <(echo "$command" | grep -oE '\btee\s+(-a\s+)?[^ |;&]+' | sed -E 's/\btee\s+(-a\s+)?//g' | tr -d "'" | tr -d '"')
 
     # dd command with of=
     while read -r match; do
         [[ -n "$match" ]] && paths+=("$match")
-    done < <(echo "$command" | grep -oE '\bof=[^\s|;&]+' | sed 's/of=//g' | tr -d "'" | tr -d '"')
+    done < <(echo "$command" | grep -oE '\bof=[^ |;&]+' | sed 's/of=//g' | tr -d "'" | tr -d '"')
 
     # Return unique paths
     printf '%s\n' "${paths[@]}" | sort -u | tr '\n' ' '

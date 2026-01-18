@@ -1,0 +1,186 @@
+name: Tests
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-linux:
+    name: Test on Linux
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install jq
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq
+
+      - name: Install BATS
+        run: |
+          git clone --depth 1 https://github.com/bats-core/bats-core.git
+          cd bats-core
+          sudo ./install.sh /usr/local
+
+      - name: Verify dependencies
+        run: |
+          echo "jq version:"
+          jq --version
+          echo "bats version:"
+          bats --version
+          echo "bash version:"
+          bash --version
+
+      - name: Make scripts executable
+        run: |
+          chmod +x tests/*.sh tests/*.bats hooks/*.sh
+
+      - name: Run BATS tests
+        run: |
+          bats tests/*.bats
+
+      - name: Test hook directly with sample input
+        run: |
+          # Create a test directory with protection
+          mkdir -p /tmp/test-project
+          touch /tmp/test-project/.claude-block
+
+          # Test Edit tool is blocked
+          echo '{"tool_name": "Edit", "tool_input": {"file_path": "/tmp/test-project/file.txt"}}' | bash hooks/protect-directories.sh && exit 1 || test $? -eq 2
+          echo "Edit tool correctly blocked"
+
+          # Test Write tool is blocked
+          echo '{"tool_name": "Write", "tool_input": {"file_path": "/tmp/test-project/file.txt"}}' | bash hooks/protect-directories.sh && exit 1 || test $? -eq 2
+          echo "Write tool correctly blocked"
+
+          # Test Read tool is allowed (not a modifying operation)
+          echo '{"tool_name": "Read", "tool_input": {"file_path": "/tmp/test-project/file.txt"}}' | bash hooks/protect-directories.sh
+          echo "Read tool correctly allowed"
+
+          # Test Bash rm command is blocked
+          echo '{"tool_name": "Bash", "tool_input": {"command": "rm /tmp/test-project/file.txt"}}' | bash hooks/protect-directories.sh && exit 1 || test $? -eq 2
+          echo "Bash rm correctly blocked"
+
+          # Test check-jq hook
+          bash hooks/check-jq.sh
+          echo "check-jq hook passed"
+
+  test-macos:
+    name: Test on macOS
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install BATS
+        run: |
+          git clone --depth 1 https://github.com/bats-core/bats-core.git
+          cd bats-core
+          sudo ./install.sh /usr/local
+
+      - name: Verify dependencies
+        run: |
+          echo "jq version:"
+          jq --version
+          echo "bats version:"
+          bats --version
+          echo "bash version:"
+          bash --version
+
+      - name: Make scripts executable
+        run: |
+          chmod +x tests/*.sh tests/*.bats hooks/*.sh
+
+      - name: Run BATS tests
+        run: |
+          bats tests/*.bats
+
+  test-windows:
+    name: Test on Windows
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Git Bash environment
+        shell: bash
+        run: |
+          echo "Git Bash is available"
+          bash --version
+
+      - name: Install jq
+        shell: bash
+        run: |
+          curl -L -o /usr/bin/jq.exe https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-windows-amd64.exe
+          chmod +x /usr/bin/jq.exe
+          jq --version
+
+      - name: Install BATS
+        shell: bash
+        run: |
+          git clone --depth 1 https://github.com/bats-core/bats-core.git
+          cd bats-core
+          ./install.sh "$HOME/bats"
+          echo "$HOME/bats/bin" >> $GITHUB_PATH
+
+      - name: Verify dependencies
+        shell: bash
+        run: |
+          echo "jq version:"
+          jq --version
+          echo "bats version:"
+          "$HOME/bats/bin/bats" --version
+          echo "bash version:"
+          bash --version
+
+      - name: Run BATS tests
+        shell: bash
+        run: |
+          "$HOME/bats/bin/bats" tests/*.bats
+
+      - name: Test hook directly with sample input (Windows)
+        shell: bash
+        run: |
+          # Create a test directory with protection
+          mkdir -p /tmp/test-project
+          touch /tmp/test-project/.claude-block
+
+          # Test Edit tool is blocked
+          echo '{"tool_name": "Edit", "tool_input": {"file_path": "/tmp/test-project/file.txt"}}' | bash hooks/protect-directories.sh && exit 1 || test $? -eq 2
+          echo "Edit tool correctly blocked"
+
+          # Test using the cross-platform runner (run-hook.cmd)
+          echo '{"tool_name": "Write", "tool_input": {"file_path": "/tmp/test-project/file.txt"}}' | bash hooks/run-hook.cmd protect-directories.sh && exit 1 || test $? -eq 2
+          echo "Cross-platform runner works"
+
+  shellcheck:
+    name: ShellCheck Linting
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install ShellCheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+
+      - name: Run ShellCheck on hooks
+        run: |
+          shellcheck -e SC2034,SC2155 hooks/*.sh || true
+
+      - name: Run ShellCheck on test helper
+        run: |
+          shellcheck -e SC2034,SC2155 tests/test_helper.bash || true
