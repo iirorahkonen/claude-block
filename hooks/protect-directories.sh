@@ -57,33 +57,6 @@ fi
 convert_wildcard_to_regex() {
     local pattern="$1"
 
-    # Normalize path separators (convert \ to /)
-    pattern="${pattern//\\//}"
-
-    # Escape regex special characters except * and ?
-    # Order matters: escape \ first, then other chars
-    pattern=$(echo "$pattern" | sed 's/\./\\./g; s/\^/\\^/g; s/\$/\\$/g; s/\[/\\[/g; s/\]/\\]/g; s/(/\\(/g; s/)/\\)/g; s/{/\\{/g; s/}/\\}/g; s/+/\\+/g; s/|/\\|/g')
-
-    # Convert ** first (placeholder to avoid collision with *)
-    pattern="${pattern//\*\*/<<<DOUBLESTAR>>>}"
-    # Convert * to [^/]* (any chars except path separator)
-    pattern="${pattern//\*/[^/]*}"
-    # Convert placeholder back to .* (any chars including path separator)
-    pattern="${pattern//<<<DOUBLESTAR>>>/.}"
-    pattern="${pattern//./.\\*}"  # Actually make it .*
-    pattern="${pattern//.\\*/*}"  # Fix the escaping
-    # Actually, let me redo this properly:
-    pattern=$(echo "$pattern" | sed 's/<<<DOUBLESTAR>>>/.*/g')
-    # Convert ? to . (single character)
-    pattern="${pattern//\?/.}"
-
-    echo "^${pattern}$"
-}
-
-# Actually, let me rewrite the convert function more carefully
-convert_wildcard_to_regex() {
-    local pattern="$1"
-
     # Normalize path separators
     pattern="${pattern//\\//}"
 
