@@ -1,6 +1,6 @@
-# claude-block
+# Claude Block
 
-**Protect sensitive files from accidental AI modifications.**
+**A Claude Code plugin to protect sensitive files from accidental AI modifications.**
 
 Drop a `.claude-block` file in any directory to control what Claude can and cannot edit. Protect configs, lock files, migrations, or entire directories with simple pattern rules.
 
