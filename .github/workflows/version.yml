@@ -2,7 +2,7 @@ name: Version
 
 on:
   push:
-    branches: [main, master]
+    branches: [main]
     paths:
       - 'hooks/**'
       - 'skills/**'
@@ -51,7 +51,7 @@ jobs:
     name: Create Git Tag
     runs-on: ubuntu-latest
     needs: version
-    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+    if: github.ref == 'refs/heads/main'
 
     steps:
       - name: Checkout repository

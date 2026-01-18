@@ -1,17 +1,12 @@
 mode: ContinuousDeployment
 next-version: 1.0.2
+major-version-bump-message: '\+semver:\s*(major|breaking)'
+minor-version-bump-message: '\+semver:\s*(minor|feature)'
+patch-version-bump-message: '\+semver:\s*(patch|fix)'
+no-bump-message: '\+semver:\s*(none|skip)'
 branches:
   main:
     regex: ^main$
-    mode: ContinuousDeployment
-    tag: ''
-    increment: Patch
-    prevent-increment-of-merged-branch-version: false
-    track-merge-target: false
-    source-branches: []
-    is-source-branch-for: []
-  master:
-    regex: ^master$
     mode: ContinuousDeployment
     tag: ''
     increment: Patch
@@ -26,7 +21,6 @@ branches:
     increment: Inherit
     source-branches:
       - main
-      - master
   pull-request:
     regex: ^(pull|pull\-requests|pr)[/-]
     mode: ContinuousDeployment
@@ -34,7 +28,6 @@ branches:
     increment: Inherit
     source-branches:
       - main
-      - master
       - feature
 ignore:
   sha: []
