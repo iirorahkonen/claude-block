@@ -27,40 +27,13 @@ Drop a `.claude-block` file in any directory to control what Claude can and cann
 
 ## Usage
 
-### Creating Protection Files
-
 Use the `/claude-block` skill to interactively create a `.claude-block` file:
 
 ```
 /claude-block
 ```
 
-### Manual Creation
-
-Create a `.claude-block` file in any directory you want to protect.
-
-### Local Configuration Files
-
-For personal or machine-specific protection rules that shouldn't be committed to git, use `.claude-block.local`:
-
-```json
-// .claude-block.local - not committed to git
-{
-  "blocked": [".personal-config", "local-secrets/**/*"]
-}
-```
-
-Add `.claude-block.local` to your `.gitignore`:
-
-```
-.claude-block.local
-```
-
-When both `.claude-block` and `.claude-block.local` exist in the same directory:
-- **Blocked patterns**: Combined (union) - files blocked by either config are protected
-- **Allowed patterns**: Local overrides main
-- **Guide messages**: Local takes precedence
-- **Note**: Cannot mix `allowed` and `blocked` modes between the two files
+Or create a `.claude-block` file manually in any directory you want to protect.
 
 ## .claude-block Format
 
@@ -148,15 +121,30 @@ Keep Claude focused on specific directories during feature work:
 | `*.test.*` | Files with .test. in the name |
 | `config?.json` | config1.json, configA.json, etc. |
 
+## Local Configuration Files
+
+For personal or machine-specific protection rules that shouldn't be committed to git, use `.claude-block.local`:
+
+```json
+{
+  "blocked": [".personal-config", "local-secrets/**/*"]
+}
+```
+
+Add `.claude-block.local` to your `.gitignore`.
+
+When both files exist in the same directory:
+- Blocked patterns are combined (union)
+- Allowed patterns and guide messages use local file
+- Cannot mix `allowed` and `blocked` modes between files
+
 ## How It Works
 
-The plugin hooks into Claude's file operations. When Claude tries to modify a file, it checks for `.claude-block` and `.claude-block.local` files in the target directory and parents, merges their configurations, then allows or blocks based on your rules.
+The plugin hooks into Claude's file operations. When Claude tries to modify a file, it checks for `.claude-block` files in the target directory and parents, then allows or blocks based on your rules.
 
-**Key behaviors:**
-- `.claude-block` and `.claude-block.local` files themselves are always protected (cannot be modified by Claude)
+- `.claude-block` files themselves are always protected
 - Protection cascades to all subdirectories
-- Closest configuration file(s) to the target file takes precedence
-- When both files exist, they are merged (blocked patterns combined, local guide takes precedence)
+- Closest configuration to the target file takes precedence
 
 ## License
 
