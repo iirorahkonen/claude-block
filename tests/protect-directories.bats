@@ -210,6 +210,24 @@ teardown() {
     [[ "$output" == *"General protection message"* ]]
 }
 
+@test "allowed list with pattern-specific guide shows guide when blocked" {
+    create_block_file "$TEST_DIR/project" '{
+        "allowed": [{"pattern": "*.test.ts", "guide": "Test files allowed"}],
+        "guide": "Only test files can be edited"
+    }'
+
+    # Non-matching file should be blocked and show guide
+    local input=$(make_edit_input "$TEST_DIR/project/app.ts")
+    run bash -c "echo '$input' | bash '$HOOKS_DIR/protect-directories.sh'"
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"Only test files can be edited"* ]]
+
+    # Matching file should be allowed
+    input=$(make_edit_input "$TEST_DIR/project/app.test.ts")
+    run bash -c "echo '$input' | bash '$HOOKS_DIR/protect-directories.sh'"
+    [ "$status" -eq 0 ]
+}
+
 # =============================================================================
 # Invalid Configuration Tests
 # =============================================================================
@@ -352,6 +370,22 @@ teardown() {
     [[ "$output" == *"cannot mix allowed and blocked"* ]]
 }
 
+@test "local allowed list overrides main allowed list" {
+    # Main allows *.txt and *.md, local allows only *.js
+    create_block_file "$TEST_DIR/project" '{"allowed": ["*.txt", "*.md"]}'
+    create_local_block_file "$TEST_DIR/project" '{"allowed": ["*.js"]}'
+
+    # .txt was allowed in main but not in local - should be blocked
+    local input=$(make_edit_input "$TEST_DIR/project/file.txt")
+    run bash -c "echo '$input' | bash '$HOOKS_DIR/protect-directories.sh'"
+    [ "$status" -eq 2 ]
+
+    # .js is allowed in local - should be allowed
+    input=$(make_edit_input "$TEST_DIR/project/file.js")
+    run bash -c "echo '$input' | bash '$HOOKS_DIR/protect-directories.sh'"
+    [ "$status" -eq 0 ]
+}
+
 # =============================================================================
 # Tool Type Tests
 # =============================================================================
@@ -449,6 +483,15 @@ teardown() {
     [ "$status" -eq 2 ]
 }
 
+@test "detects tee -a append command target" {
+    create_block_file "$TEST_DIR/project"
+    local input
+    input=$(make_bash_input "echo 'hello' | tee -a $TEST_DIR/project/file.txt")
+
+    run run_hook_with_input "$input"
+    [ "$status" -eq 2 ]
+}
+
 @test "detects mkdir command target" {
     create_block_file "$TEST_DIR/project"
     local input
@@ -474,6 +517,34 @@ teardown() {
 
     run run_hook_with_input "$input"
     [ "$status" -eq 0 ]
+}
+
+@test "detects rmdir command target" {
+    create_block_file "$TEST_DIR/project"
+    mkdir -p "$TEST_DIR/project/emptydir"
+    local input
+    input=$(make_bash_input "rmdir $TEST_DIR/project/emptydir")
+
+    run run_hook_with_input "$input"
+    [ "$status" -eq 2 ]
+}
+
+@test "detects append redirection target" {
+    create_block_file "$TEST_DIR/project"
+    local input
+    input=$(make_bash_input "echo 'hello' >> $TEST_DIR/project/file.txt")
+
+    run run_hook_with_input "$input"
+    [ "$status" -eq 2 ]
+}
+
+@test "detects dd command with of= target" {
+    create_block_file "$TEST_DIR/project"
+    local input
+    input=$(make_bash_input "dd if=/dev/zero of=$TEST_DIR/project/file.bin bs=1 count=1")
+
+    run run_hook_with_input "$input"
+    [ "$status" -eq 2 ]
 }
 
 # =============================================================================
@@ -574,6 +645,108 @@ teardown() {
 
     # Non-allowed file should be blocked
     input=$(make_edit_input "$TEST_DIR/project/src/code.js")
+    run bash -c "echo '$input' | bash '$HOOKS_DIR/protect-directories.sh'"
+    [ "$status" -eq 2 ]
+}
+
+# =============================================================================
+# Path Pattern Relative Directory Tests
+# =============================================================================
+
+@test "patterns are relative to .claude-block directory - root level" {
+    # .claude-block at project root with blocked pattern for src/
+    # Note: src/** matches everything under src/ (files and subdirs)
+    #       src/**/* only matches files in subdirectories (requires at least one subdir level)
+    create_block_file "$TEST_DIR/project" '{"blocked": ["src/**"]}'
+    mkdir -p "$TEST_DIR/project/src/components"
+
+    # File in src/ should be blocked
+    local input=$(make_edit_input "$TEST_DIR/project/src/index.ts")
+    run bash -c "echo '$input' | bash '$HOOKS_DIR/protect-directories.sh'"
+    [ "$status" -eq 2 ]
+
+    # File in src/components/ should be blocked
+    input=$(make_edit_input "$TEST_DIR/project/src/components/Button.tsx")
+    run bash -c "echo '$input' | bash '$HOOKS_DIR/protect-directories.sh'"
+    [ "$status" -eq 2 ]
+
+    # File outside src/ should be allowed
+    input=$(make_edit_input "$TEST_DIR/project/README.md")
+    run bash -c "echo '$input' | bash '$HOOKS_DIR/protect-directories.sh'"
+    [ "$status" -eq 0 ]
+}
+
+@test "patterns are relative to .claude-block directory - nested level" {
+    # .claude-block inside src/ directory - patterns relative to src/
+    mkdir -p "$TEST_DIR/project/src/components"
+    create_block_file "$TEST_DIR/project/src" '{"blocked": ["components/**"]}'
+
+    # File in components/ should be blocked (relative to src/)
+    local input=$(make_edit_input "$TEST_DIR/project/src/components/Button.tsx")
+    run bash -c "echo '$input' | bash '$HOOKS_DIR/protect-directories.sh'"
+    [ "$status" -eq 2 ]
+
+    # File directly in src/ should be allowed
+    input=$(make_edit_input "$TEST_DIR/project/src/index.ts")
+    run bash -c "echo '$input' | bash '$HOOKS_DIR/protect-directories.sh'"
+    [ "$status" -eq 0 ]
+}
+
+@test "direct file pattern works at any level" {
+    # Block specific filename regardless of path
+    # Note: **config.json matches at any level (root or nested)
+    #       **/config.json only matches in subdirectories (requires path prefix)
+    mkdir -p "$TEST_DIR/project/deep/nested/dir"
+    create_block_file "$TEST_DIR/project" '{"blocked": ["**config.json"]}'
+
+    # config.json at root should be blocked
+    local input=$(make_edit_input "$TEST_DIR/project/config.json")
+    run bash -c "echo '$input' | bash '$HOOKS_DIR/protect-directories.sh'"
+    [ "$status" -eq 2 ]
+
+    # config.json in nested dir should be blocked
+    input=$(make_edit_input "$TEST_DIR/project/deep/nested/dir/config.json")
+    run bash -c "echo '$input' | bash '$HOOKS_DIR/protect-directories.sh'"
+    [ "$status" -eq 2 ]
+
+    # other.json should be allowed
+    input=$(make_edit_input "$TEST_DIR/project/other.json")
+    run bash -c "echo '$input' | bash '$HOOKS_DIR/protect-directories.sh'"
+    [ "$status" -eq 0 ]
+}
+
+@test "allowed pattern with explicit path works correctly" {
+    # Allow only files in specific subdirectory
+    # Note: src/features/auth/** matches all files/dirs in auth/
+    mkdir -p "$TEST_DIR/project/src/features/auth"
+    mkdir -p "$TEST_DIR/project/src/features/dashboard"
+    create_block_file "$TEST_DIR/project" '{"allowed": ["src/features/auth/**"]}'
+
+    # File in auth feature should be allowed
+    local input=$(make_edit_input "$TEST_DIR/project/src/features/auth/login.ts")
+    run bash -c "echo '$input' | bash '$HOOKS_DIR/protect-directories.sh'"
+    [ "$status" -eq 0 ]
+
+    # File in dashboard feature should be blocked
+    input=$(make_edit_input "$TEST_DIR/project/src/features/dashboard/index.ts")
+    run bash -c "echo '$input' | bash '$HOOKS_DIR/protect-directories.sh'"
+    [ "$status" -eq 2 ]
+}
+
+@test "multiple directory levels with different configs" {
+    # Root: allow only src/
+    create_block_file "$TEST_DIR/project" '{"allowed": ["src/**"]}'
+    # src: block generated files
+    mkdir -p "$TEST_DIR/project/src/generated"
+    create_block_file "$TEST_DIR/project/src" '{"blocked": ["generated/**"]}'
+
+    # File in src/ follows src's rules (which blocks generated/)
+    local input=$(make_edit_input "$TEST_DIR/project/src/index.ts")
+    run bash -c "echo '$input' | bash '$HOOKS_DIR/protect-directories.sh'"
+    [ "$status" -eq 0 ]
+
+    # Generated file is blocked by src's .claude-block
+    input=$(make_edit_input "$TEST_DIR/project/src/generated/types.ts")
     run bash -c "echo '$input' | bash '$HOOKS_DIR/protect-directories.sh'"
     [ "$status" -eq 2 ]
 }
