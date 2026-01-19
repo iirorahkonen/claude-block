@@ -27,10 +27,10 @@ Drop a `.block` file in any directory to control what Claude can and cannot edit
 
 ## Usage
 
-Use the `/block` skill to interactively create a `.block` file:
+Use the `/block:create` skill to interactively create a `.block` file:
 
 ```
-/block
+/block:create
 ```
 
 Or create a `.block` file manually in any directory you want to protect.
