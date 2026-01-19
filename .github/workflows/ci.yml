@@ -85,20 +85,24 @@ jobs:
           mkdir -p /tmp/test-project
           touch /tmp/test-project/.block
 
-          # Test Edit tool is blocked
-          echo '{"tool_name": "Edit", "tool_input": {"file_path": "/tmp/test-project/file.txt"}}' | bash hooks/protect-directories.sh && exit 1 || test $? -eq 2
+          # Test Edit tool is blocked (check for JSON block decision)
+          OUTPUT=$(echo '{"tool_name": "Edit", "tool_input": {"file_path": "/tmp/test-project/file.txt"}}' | bash hooks/protect-directories.sh)
+          echo "$OUTPUT" | grep -q '"decision".*"block"' || { echo "Expected block decision for Edit"; exit 1; }
           echo "Edit tool correctly blocked"
 
           # Test Write tool is blocked
-          echo '{"tool_name": "Write", "tool_input": {"file_path": "/tmp/test-project/file.txt"}}' | bash hooks/protect-directories.sh && exit 1 || test $? -eq 2
+          OUTPUT=$(echo '{"tool_name": "Write", "tool_input": {"file_path": "/tmp/test-project/file.txt"}}' | bash hooks/protect-directories.sh)
+          echo "$OUTPUT" | grep -q '"decision".*"block"' || { echo "Expected block decision for Write"; exit 1; }
           echo "Write tool correctly blocked"
 
           # Test Read tool is allowed (not a modifying operation)
-          echo '{"tool_name": "Read", "tool_input": {"file_path": "/tmp/test-project/file.txt"}}' | bash hooks/protect-directories.sh
+          OUTPUT=$(echo '{"tool_name": "Read", "tool_input": {"file_path": "/tmp/test-project/file.txt"}}' | bash hooks/protect-directories.sh)
+          echo "$OUTPUT" | grep -q '"decision".*"block"' && { echo "Read should not be blocked"; exit 1; } || true
           echo "Read tool correctly allowed"
 
           # Test Bash rm command is blocked
-          echo '{"tool_name": "Bash", "tool_input": {"command": "rm /tmp/test-project/file.txt"}}' | bash hooks/protect-directories.sh && exit 1 || test $? -eq 2
+          OUTPUT=$(echo '{"tool_name": "Bash", "tool_input": {"command": "rm /tmp/test-project/file.txt"}}' | bash hooks/protect-directories.sh)
+          echo "$OUTPUT" | grep -q '"decision".*"block"' || { echo "Expected block decision for Bash rm"; exit 1; }
           echo "Bash rm correctly blocked"
 
           # Test check-jq hook
@@ -187,12 +191,14 @@ jobs:
           mkdir -p /tmp/test-project
           touch /tmp/test-project/.block
 
-          # Test Edit tool is blocked
-          echo '{"tool_name": "Edit", "tool_input": {"file_path": "/tmp/test-project/file.txt"}}' | bash hooks/protect-directories.sh && exit 1 || test $? -eq 2
+          # Test Edit tool is blocked (check for JSON block decision)
+          OUTPUT=$(echo '{"tool_name": "Edit", "tool_input": {"file_path": "/tmp/test-project/file.txt"}}' | bash hooks/protect-directories.sh)
+          echo "$OUTPUT" | grep -q '"decision".*"block"' || { echo "Expected block decision for Edit"; exit 1; }
           echo "Edit tool correctly blocked"
 
           # Test using the cross-platform runner (run-hook.cmd)
-          echo '{"tool_name": "Write", "tool_input": {"file_path": "/tmp/test-project/file.txt"}}' | bash hooks/run-hook.cmd protect-directories.sh && exit 1 || test $? -eq 2
+          OUTPUT=$(echo '{"tool_name": "Write", "tool_input": {"file_path": "/tmp/test-project/file.txt"}}' | bash hooks/run-hook.cmd protect-directories.sh)
+          echo "$OUTPUT" | grep -q '"decision".*"block"' || { echo "Expected block decision for Write via run-hook.cmd"; exit 1; }
           echo "Cross-platform runner works"
 
   shellcheck:
