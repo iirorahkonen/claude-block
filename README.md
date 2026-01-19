@@ -155,7 +155,7 @@ The plugin works with all Claude Code permission modes:
 | Mode | Behavior |
 |------|----------|
 | **Normal mode** | Claude asks permission before each tool call. If you accept, the hook still enforces protection and can block the operation. |
-| **Auto-accept mode** | Claude executes tools without asking. The hook is your only safety net - it intercepts operations before they execute and blocks protected files silently. |
+| **Auto-accept / YOLO mode** | Claude executes tools without asking. The hook is your only safety net - it intercepts operations before they execute and blocks protected files silently. |
 | **Plan mode** | Claude only proposes changes without executing tools. Protection isn't triggered since nothing actually executes. Once you exit plan mode and Claude attempts to apply changes, the hook will enforce protection. |
 
 In auto-accept mode, Claude executes without asking. The hook intercepts operations before they execute and blocks protected files - this is your safety net when running unattended.
