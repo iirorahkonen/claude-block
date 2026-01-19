@@ -146,6 +146,15 @@ The plugin hooks into Claude's file operations. When Claude tries to modify a fi
 - Protection cascades to all subdirectories
 - Closest configuration to the target file takes precedence
 
+## Permission Modes
+
+| Mode | Behavior |
+|------|----------|
+| **Bypass permissions** | Hook blocks silently - protected files are never modified |
+| **Normal mode** | Claude asks first, then hook enforces protection |
+
+In bypass mode, Claude executes without asking. The hook is your only safety net - it intercepts operations before they execute and blocks protected files.
+
 ## License
 
 MIT

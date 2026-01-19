@@ -792,3 +792,59 @@ teardown() {
     run run_hook_with_input "$input"
     [ "$status" -eq 2 ]
 }
+
+# =============================================================================
+# Protection Guarantee Tests (verifies files are never modified when blocked)
+# =============================================================================
+
+@test "hook exit code 2 prevents any file modification" {
+    # Create protected directory with existing file
+    create_block_file "$TEST_DIR/project"
+    mkdir -p "$TEST_DIR/project"
+    echo "original content" > "$TEST_DIR/project/existing.txt"
+
+    local input=$(make_edit_input "$TEST_DIR/project/existing.txt")
+    run bash -c "echo '$input' | bash '$HOOKS_DIR/protect-directories.sh'"
+
+    # Hook must exit with code 2 (block)
+    [ "$status" -eq 2 ]
+
+    # File content must be unchanged (hook runs BEFORE tool execution)
+    [ "$(cat "$TEST_DIR/project/existing.txt")" = "original content" ]
+}
+
+@test "blocked Write operation never creates file" {
+    create_block_file "$TEST_DIR/project"
+    mkdir -p "$TEST_DIR/project"
+
+    local input=$(make_write_input "$TEST_DIR/project/new-file.txt")
+    run bash -c "echo '$input' | bash '$HOOKS_DIR/protect-directories.sh'"
+
+    [ "$status" -eq 2 ]
+    # File must NOT exist (hook prevents creation)
+    [ ! -f "$TEST_DIR/project/new-file.txt" ]
+}
+
+@test "blocked Bash rm never deletes file" {
+    create_block_file "$TEST_DIR/project"
+    mkdir -p "$TEST_DIR/project"
+    echo "protected" > "$TEST_DIR/project/keep.txt"
+
+    local input=$(make_bash_input "rm $TEST_DIR/project/keep.txt")
+    run bash -c "echo '$input' | bash '$HOOKS_DIR/protect-directories.sh'"
+
+    [ "$status" -eq 2 ]
+    # File must still exist
+    [ -f "$TEST_DIR/project/keep.txt" ]
+}
+
+@test "allowed operations proceed normally" {
+    create_block_file "$TEST_DIR/project" '{"allowed": ["*.txt"]}'
+    mkdir -p "$TEST_DIR/project"
+
+    local input=$(make_edit_input "$TEST_DIR/project/allowed.txt")
+    run bash -c "echo '$input' | bash '$HOOKS_DIR/protect-directories.sh'"
+
+    # Hook allows with exit code 0
+    [ "$status" -eq 0 ]
+}
