@@ -836,10 +836,19 @@ teardown() {
 # =============================================================================
 
 @test "blocks when jq is not installed (fail-closed)" {
+    # Skip on Windows - this test requires Unix-style PATH manipulation
+    if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" || "$OSTYPE" == "win32" ]]; then
+        skip "Test not supported on Windows"
+    fi
+
     # Create a directory with bash but without jq to simulate jq not installed
     mkdir -p "$TEST_DIR/no-jq-bin"
-    cp /bin/bash "$TEST_DIR/no-jq-bin/"
-    cp /bin/cat "$TEST_DIR/no-jq-bin/"
+
+    # Get bash and cat paths dynamically for cross-platform support
+    local bash_path=$(command -v bash)
+    local cat_path=$(command -v cat)
+    cp "$bash_path" "$TEST_DIR/no-jq-bin/"
+    cp "$cat_path" "$TEST_DIR/no-jq-bin/"
 
     local input=$(make_edit_input "$TEST_DIR/project/file.txt")
 
