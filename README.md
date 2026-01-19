@@ -25,7 +25,7 @@ Drop a `.block` file in any directory to control what Claude can and cannot edit
 /plugin install block@block-marketplace
 ```
 
-> **Note:** The `jq` command-line tool is required when using JSON configuration in `.block` files (patterns, allowed/blocked lists). For basic protection with an empty `.block` file, `jq` is not needed.
+> **Note:** Creating a `.block` file does not require any dependencies - you can create an empty file manually. However, the `jq` command-line tool is required for the protection hook to parse and enforce rules. If `jq` is not installed, you'll see a warning at session start, and file operations in protected directories will be blocked until `jq` is installed.
 
 ## Usage
 
@@ -148,14 +148,17 @@ The plugin hooks into Claude's file operations. When Claude tries to modify a fi
 - Protection cascades to all subdirectories
 - Closest configuration to the target file takes precedence
 
-## Permission Modes
+## Claude Code Modes
+
+The plugin works with all Claude Code permission modes:
 
 | Mode | Behavior |
 |------|----------|
-| **Bypass permissions** | Hook blocks silently - protected files are never modified |
-| **Normal mode** | Claude asks first, then hook enforces protection |
+| **Normal mode** | Claude asks permission before each tool call. If you accept, the hook still enforces protection and can block the operation. |
+| **Auto-accept mode** | Claude executes tools without asking. The hook is your only safety net - it intercepts operations before they execute and blocks protected files silently. |
+| **Plan mode** | Claude only proposes changes without executing tools. Protection isn't triggered since nothing actually executes. Once you exit plan mode and Claude attempts to apply changes, the hook will enforce protection. |
 
-In bypass mode, Claude executes without asking. The hook is your only safety net - it intercepts operations before they execute and blocks protected files.
+In auto-accept mode, Claude executes without asking. The hook intercepts operations before they execute and blocks protected files - this is your safety net when running unattended.
 
 ## License
 
