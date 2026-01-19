@@ -830,3 +830,136 @@ teardown() {
     # Hook allows with exit code 0
     [ "$status" -eq 0 ]
 }
+
+# =============================================================================
+# Mode Condition Coverage Tests
+# =============================================================================
+
+@test "blocks when jq is not installed (fail-closed)" {
+    # Create a directory with bash but without jq to simulate jq not installed
+    mkdir -p "$TEST_DIR/no-jq-bin"
+    cp /bin/bash "$TEST_DIR/no-jq-bin/"
+    cp /bin/cat "$TEST_DIR/no-jq-bin/"
+
+    local input=$(make_edit_input "$TEST_DIR/project/file.txt")
+
+    # Run with custom PATH that has bash but no jq
+    run bash -c "PATH='$TEST_DIR/no-jq-bin' '$TEST_DIR/no-jq-bin/bash' '$HOOKS_DIR/protect-directories.sh' <<< '$input'"
+    is_blocked
+    [[ "$output" == *"jq is required"* ]]
+}
+
+@test "local file with allowed patterns blocks all when no main file" {
+    # When only .block.local exists with allowed patterns, the main config is
+    # treated as empty (block all). Since empty config is most restrictive,
+    # all operations are blocked regardless of local's allowed patterns.
+    create_local_block_file "$TEST_DIR/project" '{"allowed": ["*.txt"]}'
+
+    # Even .txt files should be blocked (empty main wins)
+    local input=$(make_edit_input "$TEST_DIR/project/file.txt")
+    run bash -c "echo '$input' | bash '$HOOKS_DIR/protect-directories.sh'"
+    is_blocked
+
+    # Other files should also be blocked
+    input=$(make_edit_input "$TEST_DIR/project/file.js")
+    run bash -c "echo '$input' | bash '$HOOKS_DIR/protect-directories.sh'"
+    is_blocked
+}
+
+@test "empty allowed array treated as block all" {
+    # {"allowed": []} should behave like {} (block all)
+    create_block_file "$TEST_DIR/project" '{"allowed": []}'
+    local input=$(make_edit_input "$TEST_DIR/project/file.txt")
+
+    run bash -c "echo '$input' | bash '$HOOKS_DIR/protect-directories.sh'"
+    is_blocked
+}
+
+@test "empty blocked array allows all" {
+    # {"blocked": []} should allow everything (no patterns to block)
+    create_block_file "$TEST_DIR/project" '{"blocked": []}'
+    local input=$(make_edit_input "$TEST_DIR/project/file.txt")
+
+    run bash -c "echo '$input' | bash '$HOOKS_DIR/protect-directories.sh'"
+    [ "$status" -eq 0 ]
+}
+
+@test "both configs empty uses local guide" {
+    # When both .block and .block.local are empty (block all),
+    # the local guide should take precedence
+    create_block_file "$TEST_DIR/project" '{"guide": "Main guide message"}'
+    create_local_block_file "$TEST_DIR/project" '{"guide": "Local guide message"}'
+    local input=$(make_edit_input "$TEST_DIR/project/file.txt")
+
+    run bash -c "echo '$input' | bash '$HOOKS_DIR/protect-directories.sh'"
+    is_blocked
+    [[ "$output" == *"Local guide message"* ]]
+    [[ "$output" != *"Main guide message"* ]]
+}
+
+@test "main empty with local blocked patterns blocks all" {
+    # When main is empty (block all) and local has blocked patterns,
+    # empty is more restrictive so all operations are blocked
+    create_block_file "$TEST_DIR/project"  # Empty = block all
+    create_local_block_file "$TEST_DIR/project" '{"blocked": ["*.secret"]}'
+
+    # All files blocked (empty main is most restrictive)
+    local input=$(make_edit_input "$TEST_DIR/project/file.txt")
+    run bash -c "echo '$input' | bash '$HOOKS_DIR/protect-directories.sh'"
+    is_blocked
+
+    input=$(make_edit_input "$TEST_DIR/project/file.secret")
+    run bash -c "echo '$input' | bash '$HOOKS_DIR/protect-directories.sh'"
+    is_blocked
+}
+
+@test "main with allowed patterns local empty blocks all" {
+    # When main has allowed patterns but local is empty (block all),
+    # empty is more restrictive so all operations are blocked
+    create_block_file "$TEST_DIR/project" '{"allowed": ["*.txt"]}'
+    create_local_block_file "$TEST_DIR/project"  # Empty = block all
+
+    # Even allowed patterns from main are overridden by local empty
+    local input=$(make_edit_input "$TEST_DIR/project/file.txt")
+    run bash -c "echo '$input' | bash '$HOOKS_DIR/protect-directories.sh'"
+    is_blocked
+}
+
+@test "default block reason when no guide specified" {
+    # When no guide is specified, should show default block message
+    create_block_file "$TEST_DIR/project" '{}'
+    local input=$(make_edit_input "$TEST_DIR/project/file.txt")
+
+    run bash -c "echo '$input' | bash '$HOOKS_DIR/protect-directories.sh'"
+    is_blocked
+    [[ "$output" == *"BLOCKED"* ]] || [[ "$output" == *"protected"* ]]
+}
+
+@test "bash command with multiple protected paths blocks first match" {
+    # When a bash command targets multiple paths in a protected directory,
+    # the hook should block if any path is protected
+    create_block_file "$TEST_DIR/project"
+    mkdir -p "$TEST_DIR/other"
+    local input=$(make_bash_input "cp $TEST_DIR/other/safe.txt $TEST_DIR/project/protected.txt")
+
+    run run_hook_with_input "$input"
+    is_blocked
+}
+
+@test "allows creating new .block file" {
+    # Creating a new .block file should be allowed (file doesn't exist yet)
+    mkdir -p "$TEST_DIR/project"
+    local input=$(make_write_input "$TEST_DIR/project/.block")
+
+    run bash -c "echo '$input' | bash '$HOOKS_DIR/protect-directories.sh'"
+    [ "$status" -eq 0 ]
+}
+
+@test "allows creating new .block.local file" {
+    # Creating a new .block.local file should be allowed (file doesn't exist yet)
+    mkdir -p "$TEST_DIR/project"
+    local input=$(make_write_input "$TEST_DIR/project/.block.local")
+
+    run bash -c "echo '$input' | bash '$HOOKS_DIR/protect-directories.sh'"
+    [ "$status" -eq 0 ]
+}
