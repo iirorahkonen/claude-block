@@ -44,18 +44,8 @@ if ! command -v jq &> /dev/null; then
     exit 0
 fi
 
-# Fix Windows paths in JSON input
-# Windows paths like C:\Users contain backslashes that are invalid JSON escapes
-# This function escapes all single backslashes to make the JSON valid
-# Already-escaped paths (\\) become (\\\\) but jq normalizes them back
-fix_windows_json_paths() {
-    # Escape all backslashes - Windows paths are the common case
-    # This handles both unescaped (C:\Users) and escaped (C:\\Users) paths
-    sed 's/\\/\\\\/g'
-}
-
-# Read hook input from stdin and fix Windows paths
-HOOK_INPUT=$(cat | fix_windows_json_paths)
+# Read hook input from stdin
+HOOK_INPUT=$(cat)
 
 # Parse input JSON
 TOOL_NAME=$(echo "$HOOK_INPUT" | jq -r '.tool_name // empty' 2>/dev/null)
@@ -673,6 +663,7 @@ for path in "${paths_to_check[@]}"; do
 
     # Then check if the target is in a protected directory
     protection_info=$(test_directory_protected "$path")
+
     if [[ -n "$protection_info" ]]; then
         target_file=$(echo "$protection_info" | jq -r '.target_file')
         marker_path=$(echo "$protection_info" | jq -r '.marker_path')

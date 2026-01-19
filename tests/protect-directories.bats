@@ -755,24 +755,6 @@ teardown() {
 # Windows Path Handling Tests
 # =============================================================================
 
-@test "handles JSON with unescaped Windows backslashes" {
-    # This tests the fix for Windows paths that aren't properly JSON-escaped
-    # e.g., C:\Users\path instead of C:\\Users\\path
-    # Note: Only invalid JSON escapes can be fixed (\U, \P, \R, etc.)
-    # Valid escapes like \t, \n, \r cannot be distinguished from intentional escapes
-    create_block_file "$TEST_DIR/project"
-    mkdir -p "$TEST_DIR/project/src"
-
-    # Simulate a path with invalid JSON escapes: \p, \s are not valid JSON escapes
-    # Using printf to create the exact bytes we want
-    # Path: $TEST_DIR/project\src\file.txt (with backslashes after 'project' and 'src')
-    local input
-    input=$(printf '{"tool_name":"Edit","tool_input":{"file_path":"%s\\project\\src\\file.txt"}}' "$TEST_DIR")
-
-    run run_hook_with_input "$input"
-    is_blocked
-}
-
 @test "properly escaped Windows paths still work" {
     # Ensure the fix doesn't break properly escaped paths
     create_block_file "$TEST_DIR/project"
