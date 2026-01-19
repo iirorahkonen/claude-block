@@ -16,9 +16,11 @@ jobs:
     name: Detect Changes
     runs-on: ubuntu-latest
     outputs:
-      should_version: ${{ steps.filter.outputs.versionable }}
+      should_version: ${{ steps.filter.outputs.versionable == 'true' || steps.semver.outputs.has_semver == 'true' }}
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 2
 
       - uses: dorny/paths-filter@v3
         id: filter
@@ -28,6 +30,18 @@ jobs:
               - 'hooks/**'
               - 'skills/**'
               - 'GitVersion.yml'
+
+      - name: Check for +semver in commit message
+        id: semver
+        run: |
+          COMMIT_MSG=$(git log -1 --pretty=%B)
+          if echo "$COMMIT_MSG" | grep -qE '\+semver:\s*(major|minor|patch|breaking|feature|fix|none|skip)'; then
+            echo "has_semver=true" >> $GITHUB_OUTPUT
+            echo "Found +semver in commit message"
+          else
+            echo "has_semver=false" >> $GITHUB_OUTPUT
+            echo "No +semver found in commit message"
+          fi
 
   test-linux:
     name: Test on Linux
