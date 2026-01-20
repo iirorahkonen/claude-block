@@ -1,15 +1,23 @@
 @echo off
-REM Windows wrapper for protect-directories.sh
-REM Calls bash with full path since PATH may not include Git
+REM Windows wrapper for protect_directories.py
+REM Calls Python with the hook script
 
 setlocal
 
 set "HOOK_DIR=%~dp0"
-set "BASH_PATH=C:\Program Files\Git\bin\bash.exe"
 
-if not exist "%BASH_PATH%" (
-    echo {"decision":"block","reason":"Git Bash not found at expected location"}
-    exit /b 0
+REM Try python3 first, then python
+where python3 >nul 2>&1
+if %errorlevel% equ 0 (
+    python3 "%HOOK_DIR%protect_directories.py"
+    exit /b %errorlevel%
 )
 
-"%BASH_PATH%" -l "%HOOK_DIR%protect-directories.sh"
+where python >nul 2>&1
+if %errorlevel% equ 0 (
+    python "%HOOK_DIR%protect_directories.py"
+    exit /b %errorlevel%
+)
+
+echo {"decision":"block","reason":"Python not found. Please install Python 3.8 or later."}
+exit /b 0

@@ -51,33 +51,26 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
 
-      - name: Install jq
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y jq
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
 
-      - name: Install BATS
+      - name: Install dependencies
         run: |
-          git clone --depth 1 https://github.com/bats-core/bats-core.git
-          cd bats-core
-          sudo ./install.sh /usr/local
+          python -m pip install --upgrade pip
+          pip install pytest pytest-cov
 
-      - name: Verify dependencies
+      - name: Verify Python installation
         run: |
-          echo "jq version:"
-          jq --version
-          echo "bats version:"
-          bats --version
-          echo "bash version:"
-          bash --version
+          echo "Python version:"
+          python --version
+          echo "pytest version:"
+          pytest --version
 
-      - name: Make scripts executable
+      - name: Run pytest tests
         run: |
-          chmod +x tests/*.sh tests/*.bats hooks/*.sh
-
-      - name: Run BATS tests
-        run: |
-          bats tests/*.bats
+          pytest tests/ -v --tb=short
 
       - name: Test hook directly with sample input
         run: |
@@ -86,28 +79,24 @@ jobs:
           touch /tmp/test-project/.block
 
           # Test Edit tool is blocked (check for JSON block decision)
-          OUTPUT=$(echo '{"tool_name": "Edit", "tool_input": {"file_path": "/tmp/test-project/file.txt"}}' | bash hooks/protect-directories.sh)
+          OUTPUT=$(echo '{"tool_name": "Edit", "tool_input": {"file_path": "/tmp/test-project/file.txt"}}' | python hooks/protect_directories.py)
           echo "$OUTPUT" | grep -q '"decision".*"block"' || { echo "Expected block decision for Edit"; exit 1; }
           echo "Edit tool correctly blocked"
 
           # Test Write tool is blocked
-          OUTPUT=$(echo '{"tool_name": "Write", "tool_input": {"file_path": "/tmp/test-project/file.txt"}}' | bash hooks/protect-directories.sh)
+          OUTPUT=$(echo '{"tool_name": "Write", "tool_input": {"file_path": "/tmp/test-project/file.txt"}}' | python hooks/protect_directories.py)
           echo "$OUTPUT" | grep -q '"decision".*"block"' || { echo "Expected block decision for Write"; exit 1; }
           echo "Write tool correctly blocked"
 
           # Test Read tool is allowed (not a modifying operation)
-          OUTPUT=$(echo '{"tool_name": "Read", "tool_input": {"file_path": "/tmp/test-project/file.txt"}}' | bash hooks/protect-directories.sh)
+          OUTPUT=$(echo '{"tool_name": "Read", "tool_input": {"file_path": "/tmp/test-project/file.txt"}}' | python hooks/protect_directories.py)
           echo "$OUTPUT" | grep -q '"decision".*"block"' && { echo "Read should not be blocked"; exit 1; } || true
           echo "Read tool correctly allowed"
 
           # Test Bash rm command is blocked
-          OUTPUT=$(echo '{"tool_name": "Bash", "tool_input": {"command": "rm /tmp/test-project/file.txt"}}' | bash hooks/protect-directories.sh)
+          OUTPUT=$(echo '{"tool_name": "Bash", "tool_input": {"command": "rm /tmp/test-project/file.txt"}}' | python hooks/protect_directories.py)
           echo "$OUTPUT" | grep -q '"decision".*"block"' || { echo "Expected block decision for Bash rm"; exit 1; }
           echo "Bash rm correctly blocked"
-
-          # Test check-jq hook
-          bash hooks/check-jq.sh
-          echo "check-jq hook passed"
 
   test-macos:
     name: Test on macOS
@@ -117,28 +106,26 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
 
-      - name: Install BATS
-        run: |
-          git clone --depth 1 https://github.com/bats-core/bats-core.git
-          cd bats-core
-          sudo ./install.sh /usr/local
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
 
-      - name: Verify dependencies
+      - name: Install dependencies
         run: |
-          echo "jq version:"
-          jq --version
-          echo "bats version:"
-          bats --version
-          echo "bash version:"
-          bash --version
+          python -m pip install --upgrade pip
+          pip install pytest pytest-cov
 
-      - name: Make scripts executable
+      - name: Verify Python installation
         run: |
-          chmod +x tests/*.sh tests/*.bats hooks/*.sh
+          echo "Python version:"
+          python --version
+          echo "pytest version:"
+          pytest --version
 
-      - name: Run BATS tests
+      - name: Run pytest tests
         run: |
-          bats tests/*.bats
+          pytest tests/ -v --tb=short
 
   test-windows:
     name: Test on Windows
@@ -148,41 +135,26 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
 
-      - name: Setup Git Bash environment
-        shell: bash
-        run: |
-          echo "Git Bash is available"
-          bash --version
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
 
-      - name: Install jq
-        shell: bash
+      - name: Install dependencies
         run: |
-          curl -L -o /usr/bin/jq.exe https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-windows-amd64.exe
-          chmod +x /usr/bin/jq.exe
-          jq --version
+          python -m pip install --upgrade pip
+          pip install pytest pytest-cov
 
-      - name: Install BATS
-        shell: bash
+      - name: Verify Python installation
         run: |
-          git clone --depth 1 https://github.com/bats-core/bats-core.git
-          cd bats-core
-          ./install.sh "$HOME/bats"
-          echo "$HOME/bats/bin" >> $GITHUB_PATH
+          echo "Python version:"
+          python --version
+          echo "pytest version:"
+          pytest --version
 
-      - name: Verify dependencies
-        shell: bash
+      - name: Run pytest tests
         run: |
-          echo "jq version:"
-          jq --version
-          echo "bats version:"
-          "$HOME/bats/bin/bats" --version
-          echo "bash version:"
-          bash --version
-
-      - name: Run BATS tests
-        shell: bash
-        run: |
-          "$HOME/bats/bin/bats" tests/*.bats
+          pytest tests/ -v --tb=short
 
       - name: Test hook directly with sample input (Windows)
         shell: bash
@@ -192,130 +164,58 @@ jobs:
           touch /tmp/test-project/.block
 
           # Test Edit tool is blocked (check for JSON block decision)
-          OUTPUT=$(echo '{"tool_name": "Edit", "tool_input": {"file_path": "/tmp/test-project/file.txt"}}' | bash hooks/protect-directories.sh)
+          OUTPUT=$(echo '{"tool_name": "Edit", "tool_input": {"file_path": "/tmp/test-project/file.txt"}}' | python hooks/protect_directories.py)
           echo "$OUTPUT" | grep -q '"decision".*"block"' || { echo "Expected block decision for Edit"; exit 1; }
           echo "Edit tool correctly blocked"
 
           # Test Write tool is blocked
-          OUTPUT=$(echo '{"tool_name": "Write", "tool_input": {"file_path": "/tmp/test-project/file.txt"}}' | bash hooks/protect-directories.sh)
+          OUTPUT=$(echo '{"tool_name": "Write", "tool_input": {"file_path": "/tmp/test-project/file.txt"}}' | python hooks/protect_directories.py)
           echo "$OUTPUT" | grep -q '"decision".*"block"' || { echo "Expected block decision for Write"; exit 1; }
           echo "Write tool correctly blocked"
 
-          # Note: run-hook.cmd is tested implicitly when Claude Code calls hooks from cmd.exe
-          # The BATS tests cover the core protection logic via direct bash execution
-
-  shellcheck:
-    name: ShellCheck Linting
+  lint:
+    name: Python Linting
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
 
-      - name: Install ShellCheck
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y shellcheck
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
 
-      - name: Run ShellCheck on hooks
+      - name: Install linting tools
         run: |
-          shellcheck -e SC2034,SC2155 hooks/*.sh || true
+          python -m pip install --upgrade pip
+          pip install ruff
 
-      - name: Run ShellCheck on test helper
+      - name: Run ruff linter
         run: |
-          shellcheck -e SC2034,SC2155 tests/test_helper.bash || true
+          ruff check hooks/ tests/ || true
 
   e2e:
-    name: E2E - ${{ matrix.os }} - JQ ${{ matrix.jq }}
+    name: E2E - ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        jq: [with, without]
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-
-      - name: Install jq (Linux)
-        if: matrix.os == 'ubuntu-latest' && matrix.jq == 'with'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y jq
-          jq --version
-
-      - name: Install jq (macOS)
-        if: matrix.os == 'macos-latest' && matrix.jq == 'with'
-        run: |
-          # jq is pre-installed on macOS runners, verify it
-          jq --version
-
-      - name: Install jq (Windows)
-        if: matrix.os == 'windows-latest' && matrix.jq == 'with'
-        shell: bash
-        run: |
-          curl -L -o /usr/bin/jq.exe https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-windows-amd64.exe
-          chmod +x /usr/bin/jq.exe
-          jq --version
-
-      - name: Remove jq (Linux)
-        if: matrix.os == 'ubuntu-latest' && matrix.jq == 'without'
-        run: |
-          sudo apt-get remove -y jq || true
-          sudo rm -f /usr/bin/jq /usr/local/bin/jq
-          hash -r
-          if command -v jq; then
-            echo "Note: jq still found at $(which jq) - may be in system location"
-            echo "Tests will verify fail-closed behavior regardless"
-          else
-            echo "jq successfully removed"
-          fi
-
-      - name: Remove jq (macOS)
-        if: matrix.os == 'macos-latest' && matrix.jq == 'without'
-        run: |
-          # Create a fake jq that always fails
-          # SIP prevents modifying /usr/bin, so we override PATH instead
-          mkdir -p ~/bin
-          cat > ~/bin/jq <<'FAKEJQ'
-          #!/bin/bash
-          echo "jq: command not found" >&2
-          exit 127
-          FAKEJQ
-          chmod +x ~/bin/jq
-
-          # Prepend ~/bin to PATH for all subsequent steps
-          echo "$HOME/bin" >> $GITHUB_PATH
-
-          # Verify jq is not accessible (need to use full path since PATH not updated yet in this step)
-          export PATH="$HOME/bin:$PATH"
-          hash -r
-          if command -v jq && jq --version 2>/dev/null; then
-            echo "ERROR: Real jq still accessible"
-            exit 1
-          else
-            echo "jq successfully shadowed with fake binary"
-          fi
-
-      - name: Remove jq (Windows)
-        if: matrix.os == 'windows-latest' && matrix.jq == 'without'
-        shell: bash
-        run: |
-          # Remove jq from common Windows locations
-          rm -f /usr/bin/jq.exe /usr/bin/jq /mingw64/bin/jq.exe /c/ProgramData/Chocolatey/bin/jq.exe || true
-          hash -r
-          if command -v jq; then
-            echo "Note: jq still found at $(which jq) - may be in system location"
-            echo "Tests will verify fail-closed behavior regardless"
-          else
-            echo "jq successfully removed"
-          fi
 
       - name: Install Claude Code CLI
         run: npm install -g @anthropic-ai/claude-code
@@ -325,33 +225,37 @@ jobs:
 
       - name: Make scripts executable (Unix)
         if: runner.os != 'Windows'
-        run: chmod +x hooks/*.sh
+        run: chmod +x hooks/*.sh hooks/*.py
 
       - name: Verify hook scripts exist
         shell: bash
         run: |
           echo "Verifying hook scripts exist in: ${GITHUB_WORKSPACE}"
 
-          # Check Unix scripts
-          for script in hooks/check-jq.sh hooks/protect-directories.sh; do
-            if [ -f "$script" ]; then
-              echo "Found: $script"
-              ls -la "$script"
-            else
-              echo "ERROR: Missing $script"
-              exit 1
-            fi
-          done
+          # Check Python script
+          if [ -f "hooks/protect_directories.py" ]; then
+            echo "Found: hooks/protect_directories.py"
+            ls -la hooks/protect_directories.py
+          else
+            echo "ERROR: Missing hooks/protect_directories.py"
+            exit 1
+          fi
 
-          # Check Windows scripts
-          for script in hooks/check-jq.cmd hooks/protect-directories.cmd; do
-            if [ -f "$script" ]; then
-              echo "Found: $script"
-            else
-              echo "ERROR: Missing $script"
-              exit 1
-            fi
-          done
+          # Check Unix wrapper
+          if [ -f "hooks/protect-directories.sh" ]; then
+            echo "Found: hooks/protect-directories.sh"
+          else
+            echo "ERROR: Missing hooks/protect-directories.sh"
+            exit 1
+          fi
+
+          # Check Windows wrapper
+          if [ -f "hooks/protect-directories.cmd" ]; then
+            echo "Found: hooks/protect-directories.cmd"
+          else
+            echo "ERROR: Missing hooks/protect-directories.cmd"
+            exit 1
+          fi
 
           echo ""
           echo "All hook scripts found!"
@@ -375,20 +279,11 @@ jobs:
         run: |
           # Get the absolute path to the plugin root
           PLUGIN_ROOT="${GITHUB_WORKSPACE}"
-
-          # Verify the hook paths are correct
-          CHECK_JQ_PATH="${PLUGIN_ROOT}/hooks/check-jq.sh"
           PROTECT_PATH="${PLUGIN_ROOT}/hooks/protect-directories.sh"
 
-          echo "Hook paths:"
-          echo "  check-jq: $CHECK_JQ_PATH"
-          echo "  protect-directories: $PROTECT_PATH"
+          echo "Hook path: $PROTECT_PATH"
 
-          # Verify files exist at these exact paths
-          if [ ! -f "$CHECK_JQ_PATH" ]; then
-            echo "ERROR: check-jq.sh not found at $CHECK_JQ_PATH"
-            exit 1
-          fi
+          # Verify files exist
           if [ ! -f "$PROTECT_PATH" ]; then
             echo "ERROR: protect-directories.sh not found at $PROTECT_PATH"
             exit 1
@@ -401,18 +296,6 @@ jobs:
           cat > ~/.claude/settings.json <<EOF
           {
             "hooks": {
-              "SessionStart": [
-                {
-                  "matcher": "",
-                  "hooks": [
-                    {
-                      "type": "command",
-                      "command": "${CHECK_JQ_PATH}",
-                      "timeout": 5000
-                    }
-                  ]
-                }
-              ],
               "PreToolUse": [
                 {
                   "matcher": "Edit|Write|NotebookEdit|Bash",
@@ -433,33 +316,16 @@ jobs:
           echo "Created Claude Code settings:"
           cat ~/.claude/settings.json
 
-          # Validate JSON is valid (only if jq actually works)
-          if command -v jq &> /dev/null && jq --version &> /dev/null; then
-            echo ""
-            echo "Validating JSON..."
-            jq . ~/.claude/settings.json > /dev/null && echo "JSON is valid!"
-          fi
-
       - name: Configure Claude Code with plugin hooks (Windows)
         if: runner.os == 'Windows'
         shell: bash
         run: |
-          # Windows needs the .cmd wrapper
           PLUGIN_ROOT="${GITHUB_WORKSPACE}"
-
-          # Convert to Windows-style path for cmd execution
-          CHECK_JQ_PATH="${PLUGIN_ROOT}/hooks/check-jq.cmd"
           PROTECT_PATH="${PLUGIN_ROOT}/hooks/protect-directories.cmd"
 
-          echo "Hook paths (Windows):"
-          echo "  check-jq: $CHECK_JQ_PATH"
-          echo "  protect-directories: $PROTECT_PATH"
+          echo "Hook path (Windows): $PROTECT_PATH"
 
           # Verify files exist
-          if [ ! -f "$CHECK_JQ_PATH" ]; then
-            echo "ERROR: check-jq.cmd not found at $CHECK_JQ_PATH"
-            exit 1
-          fi
           if [ ! -f "$PROTECT_PATH" ]; then
             echo "ERROR: protect-directories.cmd not found at $PROTECT_PATH"
             exit 1
@@ -472,18 +338,6 @@ jobs:
           cat > ~/.claude/settings.json <<EOF
           {
             "hooks": {
-              "SessionStart": [
-                {
-                  "matcher": "",
-                  "hooks": [
-                    {
-                      "type": "command",
-                      "command": "${CHECK_JQ_PATH}",
-                      "timeout": 5000
-                    }
-                  ]
-                }
-              ],
               "PreToolUse": [
                 {
                   "matcher": "Edit|Write|NotebookEdit|Bash",
@@ -504,54 +358,7 @@ jobs:
           echo "Created Claude Code settings (Windows):"
           cat ~/.claude/settings.json
 
-      - name: E2E Test - Session Start Hook (with JQ)
-        if: matrix.jq == 'with'
-        shell: bash
-        env:
-          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-        run: |
-          echo "Testing session start with jq installed..."
-
-          # Run Claude Code with a simple prompt - it should start without warnings about jq
-          # Using --print to get direct output and exit
-          OUTPUT=$(claude --print "Say hello" --max-turns 1 2>&1) || true
-
-          echo "Claude output:"
-          echo "$OUTPUT"
-
-          # Should NOT see jq warning when jq is installed
-          if echo "$OUTPUT" | grep -i "jq is not installed"; then
-            echo "ERROR: Got jq warning even though jq is installed"
-            exit 1
-          fi
-
-          echo "Session start hook working correctly with jq"
-
-      - name: E2E Test - Session Start Hook (without JQ)
-        if: matrix.jq == 'without'
-        shell: bash
-        env:
-          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-        run: |
-          echo "Testing session start without jq..."
-
-          # Run Claude Code - it should warn about jq missing
-          OUTPUT=$(claude --print "Say hello" --max-turns 1 2>&1) || true
-
-          echo "Claude output:"
-          echo "$OUTPUT"
-
-          # Should see jq warning when jq is not installed
-          if echo "$OUTPUT" | grep -i "jq"; then
-            echo "Session start correctly warned about missing jq"
-          else
-            echo "Note: Warning may appear in system message, not visible in --print output"
-          fi
-
-          echo "Session start hook test completed"
-
-      - name: E2E Test - Protected file write blocked (with JQ)
-        if: matrix.jq == 'with'
+      - name: E2E Test - Protected file write blocked
         shell: bash
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -583,18 +390,10 @@ jobs:
           fi
           echo "PASS: Existing protected file content unchanged"
 
-          # Check if output mentions the file was blocked (Claude should acknowledge)
-          if echo "$OUTPUT" | grep -qi "block\|protect\|cannot\|denied"; then
-            echo "PASS: Claude output indicates operation was blocked/denied"
-          else
-            echo "NOTE: Claude output doesn't explicitly mention blocking (may have refused for other reasons)"
-          fi
-
           echo ""
           echo "Protected file write correctly blocked"
 
-      - name: E2E Test - Unprotected file write allowed (with JQ)
-        if: matrix.jq == 'with'
+      - name: E2E Test - Unprotected file write allowed
         shell: bash
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -618,247 +417,51 @@ jobs:
             echo "This is acceptable as long as protected writes ARE blocked"
           fi
 
-      - name: E2E Test - Protected writes blocked without JQ (fail-closed)
-        if: matrix.jq == 'without'
-        shell: bash
-        env:
-          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-        run: |
-          echo "Testing fail-closed behavior without jq for protected directories..."
-
-          cd /tmp/e2e-test-project
-
-          # Ask Claude to write to PROTECTED file - should be blocked without jq (fail-closed)
-          OUTPUT=$(claude --print "Write the text 'SHOULD BE BLOCKED' to the file protected/test-no-jq.txt" --max-turns 3 --allowedTools "" 2>&1) || true
-
-          echo "Claude output:"
-          echo "$OUTPUT"
-          echo ""
-
-          # The file should NOT exist (blocked due to missing jq - fail closed)
-          if [ -f "protected/test-no-jq.txt" ]; then
-            echo "FAIL: Protected file was created even though jq is missing (fail-closed violated)!"
-            cat protected/test-no-jq.txt
-            exit 1
-          fi
-          echo "PASS: Protected file was not created (fail-closed working)"
-
-          # Check if output mentions jq is required
-          if echo "$OUTPUT" | grep -qi "jq\|blocked\|install"; then
-            echo "PASS: Claude output indicates jq-related blocking"
-          else
-            echo "NOTE: Claude output doesn't explicitly mention jq (hook may have silently blocked)"
-          fi
-
-          echo ""
-          echo "Fail-closed behavior working correctly - protected writes blocked without jq"
-
-      - name: E2E Test - Unprotected writes allowed without JQ
-        if: matrix.jq == 'without'
-        shell: bash
-        env:
-          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-        run: |
-          echo "Testing that unprotected directories allow writes without jq..."
-
-          cd /tmp/e2e-test-project
-
-          # Ask Claude to write to UNPROTECTED file - should be ALLOWED without jq
-          # (no .block file means no jq needed)
-          OUTPUT=$(claude --print "Write the text 'ALLOWED CONTENT' to the file unprotected/test-no-jq.txt" --max-turns 3 2>&1) || true
-
-          echo "Claude output:"
-          echo "$OUTPUT"
-          echo ""
-
-          # The file SHOULD be allowed to be created (no .block in unprotected directory)
-          if [ -f "unprotected/test-no-jq.txt" ]; then
-            echo "PASS: Unprotected file was created (jq not required when no .block exists)"
-            cat unprotected/test-no-jq.txt
-          else
-            echo "Note: File may not have been created due to Claude's decision, not blocking"
-            echo "This is acceptable - the key is that protected writes ARE blocked"
-          fi
-
-          echo ""
-          echo "Unprotected write test completed"
-
-      - name: E2E Test - Bash rm command blocked (with JQ)
-        if: matrix.jq == 'with'
-        shell: bash
-        env:
-          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-        run: |
-          echo "Testing that bash rm is blocked for protected files..."
-
-          cd /tmp/e2e-test-project
-
-          # Ask Claude to delete a protected file via bash
-          OUTPUT=$(claude --print "Run: rm protected/existing-file.txt" --max-turns 3 --allowedTools "" 2>&1) || true
-
-          echo "Claude output:"
-          echo "$OUTPUT"
-          echo ""
-
-          # The file should still exist (rm was blocked)
-          if [ ! -f "protected/existing-file.txt" ]; then
-            echo "FAIL: Protected file was deleted when it should have been blocked!"
-            exit 1
-          fi
-          echo "PASS: Protected file still exists"
-
-          # Verify content is unchanged
-          CONTENT=$(cat protected/existing-file.txt)
-          if [ "$CONTENT" == "protected content" ]; then
-            echo "PASS: File content unchanged"
-          else
-            echo "FAIL: File content was modified"
-            exit 1
-          fi
-
-          # Check if output mentions blocking
-          if echo "$OUTPUT" | grep -qi "block\|protect\|cannot\|denied\|refuse"; then
-            echo "PASS: Claude output indicates operation was blocked/denied"
-          else
-            echo "NOTE: Claude output doesn't explicitly mention blocking"
-          fi
-
-          echo ""
-          echo "Bash rm correctly blocked for protected file"
-
       - name: E2E Test - Direct hook execution test
         shell: bash
         run: |
           echo "Testing hooks directly with simulated Claude Code input..."
           echo ""
 
-          # Verify PATH and jq availability
-          echo "Current PATH: $PATH"
-          echo "Which jq: $(which jq 2>&1 || echo 'not found')"
-          echo ""
+          echo "=== Testing protect_directories.py ==="
 
-          # Test check-jq hook
-          echo "=== Testing check-jq.sh ==="
-          CHECK_JQ_OUTPUT=$(bash hooks/check-jq.sh)
-          echo "check-jq output:"
-          echo "$CHECK_JQ_OUTPUT"
-          echo ""
-
-          if [ "${{ matrix.jq }}" == "with" ]; then
-            # Should return continue without warning (no systemMessage)
-            if echo "$CHECK_JQ_OUTPUT" | grep -q '"decision".*:.*"continue"'; then
-              echo "PASS: check-jq returns 'continue' decision"
-            else
-              echo "FAIL: Expected 'continue' decision"
-              exit 1
-            fi
-
-            # Should NOT have warning message when jq is installed
-            if echo "$CHECK_JQ_OUTPUT" | grep -q 'systemMessage'; then
-              echo "FAIL: Got systemMessage warning even though jq is installed"
-              exit 1
-            else
-              echo "PASS: No warning message (jq is installed)"
-            fi
-          else
-            # Should return continue with warning about jq
-            if echo "$CHECK_JQ_OUTPUT" | grep -q '"decision".*:.*"continue"'; then
-              echo "PASS: check-jq returns 'continue' decision (session not blocked)"
-            else
-              echo "FAIL: Expected 'continue' decision"
-              exit 1
-            fi
-
-            # Should have specific warning message
-            EXPECTED_WARNING="jq is not installed"
-            if echo "$CHECK_JQ_OUTPUT" | grep -q "$EXPECTED_WARNING"; then
-              echo "PASS: Warning message contains '$EXPECTED_WARNING'"
-            else
-              echo "FAIL: Expected warning to contain '$EXPECTED_WARNING'"
-              exit 1
-            fi
-
-            # Verify full warning mentions .block
-            if echo "$CHECK_JQ_OUTPUT" | grep -q "Directory protection"; then
-              echo "PASS: Warning mentions 'Directory protection'"
-            else
-              echo "FAIL: Warning should mention 'Directory protection'"
-              exit 1
-            fi
-          fi
-
-          echo ""
-          echo "=== Testing protect-directories.sh ==="
-
-          PROTECT_OUTPUT=$(echo '{"tool_name": "Edit", "tool_input": {"file_path": "/tmp/e2e-test-project/protected/test.txt"}}' | bash hooks/protect-directories.sh)
-          echo "protect-directories output:"
+          PROTECT_OUTPUT=$(echo '{"tool_name": "Edit", "tool_input": {"file_path": "/tmp/e2e-test-project/protected/test.txt"}}' | python hooks/protect_directories.py)
+          echo "protect_directories output:"
           echo "$PROTECT_OUTPUT"
           echo ""
 
-          if [ "${{ matrix.jq }}" == "with" ]; then
-            # Should block with jq installed (protected directory)
-            if echo "$PROTECT_OUTPUT" | grep -q '"decision".*:.*"block"'; then
-              echo "PASS: protect-directories returns 'block' decision"
-            else
-              echo "FAIL: Protected file was not blocked"
-              exit 1
-            fi
-
-            # Should have a reason explaining why it was blocked
-            if echo "$PROTECT_OUTPUT" | grep -q '"reason"'; then
-              echo "PASS: Block response includes 'reason' field"
-              # Extract and display the reason
-              REASON=$(echo "$PROTECT_OUTPUT" | grep -o '"reason"[^}]*' || true)
-              echo "Reason: $REASON"
-            else
-              echo "FAIL: Block response should include 'reason' field"
-              exit 1
-            fi
+          # Should block (protected directory)
+          if echo "$PROTECT_OUTPUT" | grep -q '"decision".*:.*"block"'; then
+            echo "PASS: protect_directories returns 'block' decision"
           else
-            # Should block without jq (fail-closed) for PROTECTED directory
-            if echo "$PROTECT_OUTPUT" | grep -q '"decision".*:.*"block"'; then
-              echo "PASS: protect-directories returns 'block' decision for protected dir (fail-closed)"
-            else
-              echo "FAIL: Fail-closed not working - expected 'block' decision for protected dir"
-              exit 1
-            fi
+            echo "FAIL: Protected file was not blocked"
+            exit 1
+          fi
 
-            # Verify the specific fail-closed error message
-            EXPECTED_ERROR="jq is required for directory protection hook"
-            if echo "$PROTECT_OUTPUT" | grep -q "$EXPECTED_ERROR"; then
-              echo "PASS: Error message contains '$EXPECTED_ERROR'"
-            else
-              echo "FAIL: Expected error to contain '$EXPECTED_ERROR'"
-              echo "Got: $PROTECT_OUTPUT"
-              exit 1
-            fi
+          # Should have a reason explaining why it was blocked
+          if echo "$PROTECT_OUTPUT" | grep -q '"reason"'; then
+            echo "PASS: Block response includes 'reason' field"
+          else
+            echo "FAIL: Block response should include 'reason' field"
+            exit 1
+          fi
 
-            # Verify it mentions how to fix
-            if echo "$PROTECT_OUTPUT" | grep -q "Install jq"; then
-              echo "PASS: Error message tells user to install jq"
-            else
-              echo "FAIL: Error should tell user to install jq"
-              exit 1
-            fi
+          echo ""
+          echo "=== Testing protect_directories.py with UNPROTECTED path (no .block) ==="
 
-            echo ""
-            echo "=== Testing protect-directories.sh with UNPROTECTED path (no .block) ==="
+          UNPROTECT_OUTPUT=$(echo '{"tool_name": "Edit", "tool_input": {"file_path": "/tmp/e2e-test-project/unprotected/test.txt"}}' | python hooks/protect_directories.py)
+          UNPROTECT_EXIT=$?
+          echo "protect_directories output for unprotected path:"
+          echo "$UNPROTECT_OUTPUT"
+          echo "Exit code: $UNPROTECT_EXIT"
+          echo ""
 
-            # Test with unprotected path - should ALLOW without jq (no .block = no jq needed)
-            UNPROTECT_OUTPUT=$(echo '{"tool_name": "Edit", "tool_input": {"file_path": "/tmp/e2e-test-project/unprotected/test.txt"}}' | bash hooks/protect-directories.sh)
-            UNPROTECT_EXIT=$?
-            echo "protect-directories output for unprotected path:"
-            echo "$UNPROTECT_OUTPUT"
-            echo "Exit code: $UNPROTECT_EXIT"
-            echo ""
-
-            # Should allow (exit 0, no block decision) for unprotected directory without jq
-            if [ "$UNPROTECT_EXIT" -eq 0 ] && ! echo "$UNPROTECT_OUTPUT" | grep -q '"decision".*:.*"block"'; then
-              echo "PASS: protect-directories allows unprotected path without jq"
-            else
-              echo "FAIL: Unprotected path should be allowed without jq (no .block = no jq needed)"
-              exit 1
-            fi
+          # Should allow (exit 0, no block decision) for unprotected directory
+          if [ "$UNPROTECT_EXIT" -eq 0 ] && ! echo "$UNPROTECT_OUTPUT" | grep -q '"decision".*:.*"block"'; then
+            echo "PASS: protect_directories allows unprotected path"
+          else
+            echo "FAIL: Unprotected path should be allowed"
+            exit 1
           fi
 
           echo ""
@@ -872,25 +475,17 @@ jobs:
           echo "E2E Test Summary"
           echo "=========================================="
           echo "OS: ${{ matrix.os }}"
-          echo "JQ: ${{ matrix.jq }}"
           echo ""
           echo "Test scenarios covered:"
-          echo "  - Session start hook execution"
           echo "  - Protected file write blocking"
-          if [ "${{ matrix.jq }}" == "with" ]; then
-            echo "  - Unprotected file write allowing"
-            echo "  - Bash command (rm) blocking"
-          else
-            echo "  - Fail-closed behavior (protected writes blocked without jq)"
-            echo "  - Unprotected writes allowed without jq (no .block = no jq needed)"
-          fi
+          echo "  - Unprotected file write allowing"
           echo "  - Direct hook execution"
           echo "=========================================="
 
   version:
     name: Calculate Version
     runs-on: ubuntu-latest
-    needs: [changes, test-linux, test-macos, test-windows, shellcheck, e2e]
+    needs: [changes, test-linux, test-macos, test-windows, lint, e2e]
     if: |
       github.ref == 'refs/heads/main' &&
       github.event_name == 'push' &&
@@ -941,10 +536,21 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
       - name: Update plugin version
         run: |
-          jq '.version = "${{ needs.version.outputs.majorMinorPatch }}"' .claude-plugin/plugin.json > tmp.json
-          mv tmp.json .claude-plugin/plugin.json
+          python -c "
+          import json
+          with open('.claude-plugin/plugin.json', 'r') as f:
+              data = json.load(f)
+          data['version'] = '${{ needs.version.outputs.majorMinorPatch }}'
+          with open('.claude-plugin/plugin.json', 'w') as f:
+              json.dump(data, f, indent=2)
+          "
 
       - name: Commit and tag
         run: |
@@ -972,12 +578,23 @@ jobs:
           token: ${{ secrets.MARKETPLACE_TOKEN }}
           path: marketplace
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
       - name: Update marketplace.json plugin version
         run: |
           cd marketplace
           VERSION="${{ needs.version.outputs.majorMinorPatch }}"
-          jq --arg v "$VERSION" '.plugins[0].version = $v' .claude-plugin/marketplace.json > tmp.json
-          mv tmp.json .claude-plugin/marketplace.json
+          python -c "
+          import json
+          with open('.claude-plugin/marketplace.json', 'r') as f:
+              data = json.load(f)
+          data['plugins'][0]['version'] = '$VERSION'
+          with open('.claude-plugin/marketplace.json', 'w') as f:
+              json.dump(data, f, indent=2)
+          "
 
       - name: Commit and push
         run: |

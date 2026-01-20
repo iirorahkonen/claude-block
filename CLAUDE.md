@@ -9,19 +9,43 @@ This is a Claude Code plugin that provides file and directory protection using `
 ## Architecture
 
 The plugin uses Claude Code's hook system:
-- **SessionStart hook**: Runs `check-jq.sh` to verify `jq` is installed (required dependency)
-- **PreToolUse hook**: Runs `protect-directories.sh` to check if the target file is protected before allowing Edit, Write, NotebookEdit, or Bash operations
+- **PreToolUse hook**: Runs `protect_directories.py` to check if the target file is protected before allowing Edit, Write, NotebookEdit, or Bash operations
 
 Key files:
 - `hooks/hooks.json` - Hook configuration that triggers protection checks
-- `hooks/protect-directories.sh` - Main protection logic (bash script)
+- `hooks/protect_directories.py` - Main protection logic (Python)
+- `hooks/protect-directories.sh` - Unix wrapper script
+- `hooks/protect-directories.cmd` - Windows wrapper script
 - `commands/create.md` - Interactive command for creating `.block` files
 - `.claude-plugin/plugin.json` - Plugin metadata
 
-## Testing the Plugin
+## Dependencies
+
+- **Python 3.8+** - Required for the protection hook (no external packages needed)
+- **pytest** - For running tests (dev dependency only)
+
+## Testing
+
+Run the test suite with pytest:
+
+```bash
+# Install dev dependencies
+pip install -e ".[dev]"
+
+# Run all tests
+pytest tests/ -v
+
+# Run specific test file
+pytest tests/test_basic_protection.py -v
+
+# Run with coverage
+pytest tests/ -v --cov=hooks --cov-report=term-missing
+```
+
+## Testing the Plugin Locally
 
 To test protection locally:
-1. Ensure `jq` is installed
+1. Ensure Python 3.8+ is installed
 2. Create a test directory with a `.block` file
 3. Attempt to modify files in that directory - operations should be blocked
 
