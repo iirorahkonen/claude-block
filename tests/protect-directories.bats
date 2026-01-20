@@ -866,7 +866,7 @@ teardown() {
     # Run with custom PATH that has bash but no jq - should block because .block exists
     run bash -c "PATH='$TEST_DIR/no-jq-bin' '$TEST_DIR/no-jq-bin/bash' '$HOOKS_DIR/protect-directories.sh' <<< '$input'"
     is_blocked
-    [[ "$output" == *"jq is not installed"* ]]
+    [[ "$output" == *"jq is required"* ]]
 }
 
 @test "allows operations when jq is not installed and no .block file exists" {
