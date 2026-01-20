@@ -8,22 +8,24 @@ This is a Claude Code plugin that provides file and directory protection using `
 
 ## Architecture
 
-The plugin uses Claude Code's hook system:
-- **SessionStart hook**: Runs `check-jq.sh` to verify `jq` is installed (required dependency)
-- **PreToolUse hook**: Runs `protect-directories.sh` to check if the target file is protected before allowing Edit, Write, NotebookEdit, or Bash operations
+The plugin uses Claude Code's hook system with Node.js 24:
+- **SessionStart hook**: Runs `session-start.mjs` (simple continue hook)
+- **PreToolUse hook**: Runs `protect-directories.mjs` to check if the target file is protected before allowing Edit, Write, NotebookEdit, or Bash operations
 
 Key files:
 - `hooks/hooks.json` - Hook configuration that triggers protection checks
-- `hooks/protect-directories.sh` - Main protection logic (bash script)
+- `hooks/protect-directories.mjs` - Main protection logic (Node.js)
+- `hooks/session-start.mjs` - Session start hook (Node.js)
 - `commands/create.md` - Interactive command for creating `.block` files
 - `.claude-plugin/plugin.json` - Plugin metadata
 
 ## Testing the Plugin
 
 To test protection locally:
-1. Ensure `jq` is installed
-2. Create a test directory with a `.block` file
-3. Attempt to modify files in that directory - operations should be blocked
+1. Ensure Node.js 24+ is installed
+2. Run tests with `npm test`
+3. Create a test directory with a `.block` file
+4. Attempt to modify files in that directory - operations should be blocked
 
 ## Git Worktrees
 

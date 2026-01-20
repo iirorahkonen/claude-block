@@ -1,0 +1,25 @@
+{
+  "name": "block",
+  "version": "1.1.6",
+  "description": "File and directory protection for Claude Code using .block marker files with pattern matching",
+  "type": "module",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "test": "node --test tests/*.test.mjs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kodroi/block"
+  },
+  "author": "Iiro Rahkonen",
+  "license": "MIT",
+  "keywords": [
+    "protection",
+    "security",
+    "file-blocking",
+    "directory-lock",
+    "claude-code"
+  ]
+}
