@@ -65,14 +65,24 @@ jobs:
       - name: Remove jq (macOS)
         if: matrix.os == 'macos-latest' && matrix.jq == 'without'
         run: |
-          # Remove jq from common locations (system /usr/bin/jq may be SIP-protected)
-          sudo rm -f /usr/local/bin/jq /opt/homebrew/bin/jq /usr/bin/jq $(which jq 2>/dev/null) || true
+          # Find and rename jq binaries to hide them (SIP prevents removal from /usr/bin)
+          JQ_PATHS=$(which -a jq 2>/dev/null || true)
+          for jq_path in $JQ_PATHS; do
+            echo "Renaming $jq_path to ${jq_path}.disabled"
+            sudo mv "$jq_path" "${jq_path}.disabled" 2>/dev/null || true
+          done
+
+          # Also try common locations
+          sudo mv /usr/local/bin/jq /usr/local/bin/jq.disabled 2>/dev/null || true
+          sudo mv /opt/homebrew/bin/jq /opt/homebrew/bin/jq.disabled 2>/dev/null || true
+          sudo mv /usr/bin/jq /usr/bin/jq.disabled 2>/dev/null || true
+
           hash -r
           if command -v jq; then
-            echo "Note: jq still found at $(which jq) - may be system-protected"
-            echo "Tests will verify fail-closed behavior regardless"
+            echo "ERROR: jq still accessible at $(which jq)"
+            exit 1
           else
-            echo "jq successfully removed"
+            echo "jq successfully hidden/removed"
           fi
 
       - name: Remove jq (Windows)
