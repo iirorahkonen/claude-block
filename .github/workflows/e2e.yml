@@ -218,8 +218,8 @@ jobs:
           echo "Created Claude Code settings:"
           cat ~/.claude/settings.json
 
-          # Validate JSON is valid
-          if command -v jq &> /dev/null; then
+          # Validate JSON is valid (only if jq actually works)
+          if command -v jq &> /dev/null && jq --version &> /dev/null; then
             echo ""
             echo "Validating JSON..."
             jq . ~/.claude/settings.json > /dev/null && echo "JSON is valid!"
