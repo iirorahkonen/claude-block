@@ -13,6 +13,10 @@ on:
         default: 'false'
         type: boolean
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   e2e-test:
     name: E2E - ${{ matrix.os }} - JQ ${{ matrix.jq }}
