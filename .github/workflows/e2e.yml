@@ -80,6 +80,35 @@ jobs:
         if: runner.os != 'Windows'
         run: chmod +x hooks/*.sh
 
+      - name: Verify hook scripts exist
+        shell: bash
+        run: |
+          echo "Verifying hook scripts exist in: ${GITHUB_WORKSPACE}"
+
+          # Check Unix scripts
+          for script in hooks/check-jq.sh hooks/protect-directories.sh; do
+            if [ -f "$script" ]; then
+              echo "Found: $script"
+              ls -la "$script"
+            else
+              echo "ERROR: Missing $script"
+              exit 1
+            fi
+          done
+
+          # Check Windows scripts
+          for script in hooks/check-jq.cmd hooks/protect-directories.cmd; do
+            if [ -f "$script" ]; then
+              echo "Found: $script"
+            else
+              echo "ERROR: Missing $script"
+              exit 1
+            fi
+          done
+
+          echo ""
+          echo "All hook scripts found!"
+
       - name: Create test project directory
         shell: bash
         run: |
@@ -93,49 +122,76 @@ jobs:
           echo "protected content" > /tmp/e2e-test-project/protected/existing-file.txt
           echo "unprotected content" > /tmp/e2e-test-project/unprotected/existing-file.txt
 
-      - name: Configure Claude Code with plugin hooks
+      - name: Configure Claude Code with plugin hooks (Unix)
+        if: runner.os != 'Windows'
         shell: bash
         run: |
           # Get the absolute path to the plugin root
           PLUGIN_ROOT="${GITHUB_WORKSPACE}"
 
+          # Verify the hook paths are correct
+          CHECK_JQ_PATH="${PLUGIN_ROOT}/hooks/check-jq.sh"
+          PROTECT_PATH="${PLUGIN_ROOT}/hooks/protect-directories.sh"
+
+          echo "Hook paths:"
+          echo "  check-jq: $CHECK_JQ_PATH"
+          echo "  protect-directories: $PROTECT_PATH"
+
+          # Verify files exist at these exact paths
+          if [ ! -f "$CHECK_JQ_PATH" ]; then
+            echo "ERROR: check-jq.sh not found at $CHECK_JQ_PATH"
+            exit 1
+          fi
+          if [ ! -f "$PROTECT_PATH" ]; then
+            echo "ERROR: protect-directories.sh not found at $PROTECT_PATH"
+            exit 1
+          fi
+
           # Create Claude Code settings directory
           mkdir -p ~/.claude
 
-          # Create settings.json with hooks configuration pointing to this plugin
-          cat > ~/.claude/settings.json << EOF
+          # Create settings.json with hooks configuration (no indentation in heredoc)
+          cat > ~/.claude/settings.json <<SETTINGS_EOF
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "",
+        "hooks": [
           {
-            "hooks": {
-              "SessionStart": [
-                {
-                  "matcher": "",
-                  "hooks": [
-                    {
-                      "type": "command",
-                      "command": "${PLUGIN_ROOT}/hooks/check-jq.sh",
-                      "timeout": 5000
-                    }
-                  ]
-                }
-              ],
-              "PreToolUse": [
-                {
-                  "matcher": "Edit|Write|NotebookEdit|Bash",
-                  "hooks": [
-                    {
-                      "type": "command",
-                      "command": "${PLUGIN_ROOT}/hooks/protect-directories.sh",
-                      "timeout": 5000
-                    }
-                  ]
-                }
-              ]
-            }
+            "type": "command",
+            "command": "${CHECK_JQ_PATH}",
+            "timeout": 5000
           }
-          EOF
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|NotebookEdit|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${PROTECT_PATH}",
+            "timeout": 5000
+          }
+        ]
+      }
+    ]
+  }
+}
+SETTINGS_EOF
 
+          echo ""
           echo "Created Claude Code settings:"
           cat ~/.claude/settings.json
+
+          # Validate JSON is valid
+          if command -v jq &> /dev/null; then
+            echo ""
+            echo "Validating JSON..."
+            jq . ~/.claude/settings.json > /dev/null && echo "JSON is valid!"
+          fi
 
       - name: Configure Claude Code with plugin hooks (Windows)
         if: runner.os == 'Windows'
@@ -144,38 +200,60 @@ jobs:
           # Windows needs the .cmd wrapper
           PLUGIN_ROOT="${GITHUB_WORKSPACE}"
 
-          # Update settings to use .cmd wrappers on Windows
-          cat > ~/.claude/settings.json << EOF
-          {
-            "hooks": {
-              "SessionStart": [
-                {
-                  "matcher": "",
-                  "hooks": [
-                    {
-                      "type": "command",
-                      "command": "${PLUGIN_ROOT}/hooks/check-jq.cmd",
-                      "timeout": 5000
-                    }
-                  ]
-                }
-              ],
-              "PreToolUse": [
-                {
-                  "matcher": "Edit|Write|NotebookEdit|Bash",
-                  "hooks": [
-                    {
-                      "type": "command",
-                      "command": "${PLUGIN_ROOT}/hooks/protect-directories.cmd",
-                      "timeout": 5000
-                    }
-                  ]
-                }
-              ]
-            }
-          }
-          EOF
+          # Convert to Windows-style path for cmd execution
+          CHECK_JQ_PATH="${PLUGIN_ROOT}/hooks/check-jq.cmd"
+          PROTECT_PATH="${PLUGIN_ROOT}/hooks/protect-directories.cmd"
 
+          echo "Hook paths (Windows):"
+          echo "  check-jq: $CHECK_JQ_PATH"
+          echo "  protect-directories: $PROTECT_PATH"
+
+          # Verify files exist
+          if [ ! -f "$CHECK_JQ_PATH" ]; then
+            echo "ERROR: check-jq.cmd not found at $CHECK_JQ_PATH"
+            exit 1
+          fi
+          if [ ! -f "$PROTECT_PATH" ]; then
+            echo "ERROR: protect-directories.cmd not found at $PROTECT_PATH"
+            exit 1
+          fi
+
+          # Create Claude Code settings directory
+          mkdir -p ~/.claude
+
+          # Create settings.json with hooks configuration
+          cat > ~/.claude/settings.json <<SETTINGS_EOF
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CHECK_JQ_PATH}",
+            "timeout": 5000
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|NotebookEdit|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${PROTECT_PATH}",
+            "timeout": 5000
+          }
+        ]
+      }
+    ]
+  }
+}
+SETTINGS_EOF
+
+          echo ""
           echo "Created Claude Code settings (Windows):"
           cat ~/.claude/settings.json
 
@@ -240,21 +318,32 @@ jobs:
 
           echo "Claude output:"
           echo "$OUTPUT"
+          echo ""
 
           # The file should NOT exist (was blocked)
           if [ -f "protected/test-write.txt" ]; then
-            echo "ERROR: Protected file was created when it should have been blocked!"
+            echo "FAIL: Protected file was created when it should have been blocked!"
             cat protected/test-write.txt
             exit 1
           fi
+          echo "PASS: Protected file was not created"
 
           # Verify existing file was not modified
           CONTENT=$(cat protected/existing-file.txt)
           if [ "$CONTENT" != "protected content" ]; then
-            echo "ERROR: Protected existing file was modified!"
+            echo "FAIL: Protected existing file was modified!"
             exit 1
           fi
+          echo "PASS: Existing protected file content unchanged"
 
+          # Check if output mentions the file was blocked (Claude should acknowledge)
+          if echo "$OUTPUT" | grep -qi "block\|protect\|cannot\|denied"; then
+            echo "PASS: Claude output indicates operation was blocked/denied"
+          else
+            echo "NOTE: Claude output doesn't explicitly mention blocking (may have refused for other reasons)"
+          fi
+
+          echo ""
           echo "Protected file write correctly blocked"
 
       - name: E2E Test - Unprotected file write allowed (with JQ)
@@ -297,14 +386,24 @@ jobs:
 
           echo "Claude output:"
           echo "$OUTPUT"
+          echo ""
 
           # The file should NOT exist (blocked due to missing jq - fail closed)
           if [ -f "unprotected/test-no-jq.txt" ]; then
-            echo "ERROR: File was created even though jq is missing (fail-closed violated)!"
+            echo "FAIL: File was created even though jq is missing (fail-closed violated)!"
             cat unprotected/test-no-jq.txt
             exit 1
           fi
+          echo "PASS: File was not created (fail-closed working)"
 
+          # Check if output mentions jq is required
+          if echo "$OUTPUT" | grep -qi "jq\|blocked\|install"; then
+            echo "PASS: Claude output indicates jq-related blocking"
+          else
+            echo "NOTE: Claude output doesn't explicitly mention jq (hook may have silently blocked)"
+          fi
+
+          echo ""
           echo "Fail-closed behavior working correctly - writes blocked without jq"
 
       - name: E2E Test - Bash rm command blocked (with JQ)
@@ -322,67 +421,147 @@ jobs:
 
           echo "Claude output:"
           echo "$OUTPUT"
+          echo ""
 
           # The file should still exist (rm was blocked)
           if [ ! -f "protected/existing-file.txt" ]; then
-            echo "ERROR: Protected file was deleted when it should have been blocked!"
+            echo "FAIL: Protected file was deleted when it should have been blocked!"
+            exit 1
+          fi
+          echo "PASS: Protected file still exists"
+
+          # Verify content is unchanged
+          CONTENT=$(cat protected/existing-file.txt)
+          if [ "$CONTENT" == "protected content" ]; then
+            echo "PASS: File content unchanged"
+          else
+            echo "FAIL: File content was modified"
             exit 1
           fi
 
+          # Check if output mentions blocking
+          if echo "$OUTPUT" | grep -qi "block\|protect\|cannot\|denied\|refuse"; then
+            echo "PASS: Claude output indicates operation was blocked/denied"
+          else
+            echo "NOTE: Claude output doesn't explicitly mention blocking"
+          fi
+
+          echo ""
           echo "Bash rm correctly blocked for protected file"
 
       - name: E2E Test - Direct hook execution test
         shell: bash
         run: |
           echo "Testing hooks directly with simulated Claude Code input..."
+          echo ""
 
           # Test check-jq hook
-          echo "Testing check-jq.sh..."
+          echo "=== Testing check-jq.sh ==="
           CHECK_JQ_OUTPUT=$(bash hooks/check-jq.sh)
-          echo "check-jq output: $CHECK_JQ_OUTPUT"
+          echo "check-jq output:"
+          echo "$CHECK_JQ_OUTPUT"
+          echo ""
 
           if [ "${{ matrix.jq }}" == "with" ]; then
-            # Should return continue without warning
-            if echo "$CHECK_JQ_OUTPUT" | grep -q '"decision".*"continue"'; then
-              echo "check-jq correctly returns continue with jq installed"
+            # Should return continue without warning (no systemMessage)
+            if echo "$CHECK_JQ_OUTPUT" | grep -q '"decision".*:.*"continue"'; then
+              echo "PASS: check-jq returns 'continue' decision"
             else
-              echo "ERROR: Unexpected check-jq output"
+              echo "FAIL: Expected 'continue' decision"
               exit 1
+            fi
+
+            # Should NOT have warning message when jq is installed
+            if echo "$CHECK_JQ_OUTPUT" | grep -q 'systemMessage'; then
+              echo "FAIL: Got systemMessage warning even though jq is installed"
+              exit 1
+            else
+              echo "PASS: No warning message (jq is installed)"
             fi
           else
             # Should return continue with warning about jq
-            if echo "$CHECK_JQ_OUTPUT" | grep -q '"decision".*"continue"'; then
-              echo "check-jq correctly returns continue (with warning) without jq"
+            if echo "$CHECK_JQ_OUTPUT" | grep -q '"decision".*:.*"continue"'; then
+              echo "PASS: check-jq returns 'continue' decision (session not blocked)"
             else
-              echo "ERROR: Unexpected check-jq output"
+              echo "FAIL: Expected 'continue' decision"
+              exit 1
+            fi
+
+            # Should have specific warning message
+            EXPECTED_WARNING="jq is not installed"
+            if echo "$CHECK_JQ_OUTPUT" | grep -q "$EXPECTED_WARNING"; then
+              echo "PASS: Warning message contains '$EXPECTED_WARNING'"
+            else
+              echo "FAIL: Expected warning to contain '$EXPECTED_WARNING'"
+              exit 1
+            fi
+
+            # Verify full warning mentions .block
+            if echo "$CHECK_JQ_OUTPUT" | grep -q "Directory protection"; then
+              echo "PASS: Warning mentions 'Directory protection'"
+            else
+              echo "FAIL: Warning should mention 'Directory protection'"
               exit 1
             fi
           fi
 
-          # Test protect-directories hook
           echo ""
-          echo "Testing protect-directories.sh..."
+          echo "=== Testing protect-directories.sh ==="
 
           PROTECT_OUTPUT=$(echo '{"tool_name": "Edit", "tool_input": {"file_path": "/tmp/e2e-test-project/protected/test.txt"}}' | bash hooks/protect-directories.sh)
-          echo "protect-directories output: $PROTECT_OUTPUT"
+          echo "protect-directories output:"
+          echo "$PROTECT_OUTPUT"
+          echo ""
 
           if [ "${{ matrix.jq }}" == "with" ]; then
             # Should block with jq installed (protected directory)
-            if echo "$PROTECT_OUTPUT" | grep -q '"decision".*"block"'; then
-              echo "protect-directories correctly blocks protected file"
+            if echo "$PROTECT_OUTPUT" | grep -q '"decision".*:.*"block"'; then
+              echo "PASS: protect-directories returns 'block' decision"
             else
-              echo "ERROR: Protected file was not blocked"
+              echo "FAIL: Protected file was not blocked"
+              exit 1
+            fi
+
+            # Should have a reason explaining why it was blocked
+            if echo "$PROTECT_OUTPUT" | grep -q '"reason"'; then
+              echo "PASS: Block response includes 'reason' field"
+              # Extract and display the reason
+              REASON=$(echo "$PROTECT_OUTPUT" | grep -o '"reason"[^}]*' || true)
+              echo "Reason: $REASON"
+            else
+              echo "FAIL: Block response should include 'reason' field"
               exit 1
             fi
           else
             # Should block without jq (fail-closed)
-            if echo "$PROTECT_OUTPUT" | grep -q '"decision".*"block"'; then
-              echo "protect-directories correctly blocks (fail-closed) without jq"
+            if echo "$PROTECT_OUTPUT" | grep -q '"decision".*:.*"block"'; then
+              echo "PASS: protect-directories returns 'block' decision (fail-closed)"
             else
-              echo "ERROR: Fail-closed not working"
+              echo "FAIL: Fail-closed not working - expected 'block' decision"
+              exit 1
+            fi
+
+            # Verify the specific fail-closed error message
+            EXPECTED_ERROR="jq is required for directory protection hook"
+            if echo "$PROTECT_OUTPUT" | grep -q "$EXPECTED_ERROR"; then
+              echo "PASS: Error message contains '$EXPECTED_ERROR'"
+            else
+              echo "FAIL: Expected error to contain '$EXPECTED_ERROR'"
+              echo "Got: $PROTECT_OUTPUT"
+              exit 1
+            fi
+
+            # Verify it mentions how to fix
+            if echo "$PROTECT_OUTPUT" | grep -q "Install jq"; then
+              echo "PASS: Error message tells user to install jq"
+            else
+              echo "FAIL: Error should tell user to install jq"
               exit 1
             fi
           fi
+
+          echo ""
+          echo "=== All direct hook tests passed ==="
 
       - name: E2E Test Summary
         if: always()
