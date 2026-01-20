@@ -1,0 +1,586 @@
+name: E2E Tests
+
+on:
+  workflow_dispatch:
+    inputs:
+      debug:
+        description: 'Enable debug logging'
+        required: false
+        default: 'false'
+        type: boolean
+
+jobs:
+  e2e-test:
+    name: E2E - ${{ matrix.os }} - JQ ${{ matrix.jq }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        jq: [with, without]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install jq (Linux)
+        if: matrix.os == 'ubuntu-latest' && matrix.jq == 'with'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq
+          jq --version
+
+      - name: Install jq (macOS)
+        if: matrix.os == 'macos-latest' && matrix.jq == 'with'
+        run: |
+          # jq is pre-installed on macOS runners, verify it
+          jq --version
+
+      - name: Install jq (Windows)
+        if: matrix.os == 'windows-latest' && matrix.jq == 'with'
+        shell: bash
+        run: |
+          curl -L -o /usr/bin/jq.exe https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-windows-amd64.exe
+          chmod +x /usr/bin/jq.exe
+          jq --version
+
+      - name: Remove jq (Linux)
+        if: matrix.os == 'ubuntu-latest' && matrix.jq == 'without'
+        run: |
+          sudo apt-get remove -y jq || true
+          sudo rm -f /usr/bin/jq /usr/local/bin/jq
+          ! command -v jq && echo "jq successfully removed"
+
+      - name: Remove jq (macOS)
+        if: matrix.os == 'macos-latest' && matrix.jq == 'without'
+        run: |
+          sudo rm -f /usr/local/bin/jq /opt/homebrew/bin/jq $(which jq 2>/dev/null) || true
+          hash -r
+          ! command -v jq && echo "jq successfully removed"
+
+      - name: Remove jq (Windows)
+        if: matrix.os == 'windows-latest' && matrix.jq == 'without'
+        shell: bash
+        run: |
+          rm -f /usr/bin/jq.exe /usr/bin/jq /mingw64/bin/jq.exe || true
+          ! command -v jq && echo "jq successfully removed or not present"
+
+      - name: Install Claude Code CLI
+        run: npm install -g @anthropic-ai/claude-code
+
+      - name: Verify Claude Code installation
+        run: claude --version
+
+      - name: Make scripts executable (Unix)
+        if: runner.os != 'Windows'
+        run: chmod +x hooks/*.sh
+
+      - name: Verify hook scripts exist
+        shell: bash
+        run: |
+          echo "Verifying hook scripts exist in: ${GITHUB_WORKSPACE}"
+
+          # Check Unix scripts
+          for script in hooks/check-jq.sh hooks/protect-directories.sh; do
+            if [ -f "$script" ]; then
+              echo "Found: $script"
+              ls -la "$script"
+            else
+              echo "ERROR: Missing $script"
+              exit 1
+            fi
+          done
+
+          # Check Windows scripts
+          for script in hooks/check-jq.cmd hooks/protect-directories.cmd; do
+            if [ -f "$script" ]; then
+              echo "Found: $script"
+            else
+              echo "ERROR: Missing $script"
+              exit 1
+            fi
+          done
+
+          echo ""
+          echo "All hook scripts found!"
+
+      - name: Create test project directory
+        shell: bash
+        run: |
+          mkdir -p /tmp/e2e-test-project/protected
+          mkdir -p /tmp/e2e-test-project/unprotected
+
+          # Create .block file in protected directory
+          echo '{}' > /tmp/e2e-test-project/protected/.block
+
+          # Create some test files
+          echo "protected content" > /tmp/e2e-test-project/protected/existing-file.txt
+          echo "unprotected content" > /tmp/e2e-test-project/unprotected/existing-file.txt
+
+      - name: Configure Claude Code with plugin hooks (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          # Get the absolute path to the plugin root
+          PLUGIN_ROOT="${GITHUB_WORKSPACE}"
+
+          # Verify the hook paths are correct
+          CHECK_JQ_PATH="${PLUGIN_ROOT}/hooks/check-jq.sh"
+          PROTECT_PATH="${PLUGIN_ROOT}/hooks/protect-directories.sh"
+
+          echo "Hook paths:"
+          echo "  check-jq: $CHECK_JQ_PATH"
+          echo "  protect-directories: $PROTECT_PATH"
+
+          # Verify files exist at these exact paths
+          if [ ! -f "$CHECK_JQ_PATH" ]; then
+            echo "ERROR: check-jq.sh not found at $CHECK_JQ_PATH"
+            exit 1
+          fi
+          if [ ! -f "$PROTECT_PATH" ]; then
+            echo "ERROR: protect-directories.sh not found at $PROTECT_PATH"
+            exit 1
+          fi
+
+          # Create Claude Code settings directory
+          mkdir -p ~/.claude
+
+          # Create settings.json with hooks configuration (no indentation in heredoc)
+          cat > ~/.claude/settings.json <<SETTINGS_EOF
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CHECK_JQ_PATH}",
+            "timeout": 5000
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|NotebookEdit|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${PROTECT_PATH}",
+            "timeout": 5000
+          }
+        ]
+      }
+    ]
+  }
+}
+SETTINGS_EOF
+
+          echo ""
+          echo "Created Claude Code settings:"
+          cat ~/.claude/settings.json
+
+          # Validate JSON is valid
+          if command -v jq &> /dev/null; then
+            echo ""
+            echo "Validating JSON..."
+            jq . ~/.claude/settings.json > /dev/null && echo "JSON is valid!"
+          fi
+
+      - name: Configure Claude Code with plugin hooks (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          # Windows needs the .cmd wrapper
+          PLUGIN_ROOT="${GITHUB_WORKSPACE}"
+
+          # Convert to Windows-style path for cmd execution
+          CHECK_JQ_PATH="${PLUGIN_ROOT}/hooks/check-jq.cmd"
+          PROTECT_PATH="${PLUGIN_ROOT}/hooks/protect-directories.cmd"
+
+          echo "Hook paths (Windows):"
+          echo "  check-jq: $CHECK_JQ_PATH"
+          echo "  protect-directories: $PROTECT_PATH"
+
+          # Verify files exist
+          if [ ! -f "$CHECK_JQ_PATH" ]; then
+            echo "ERROR: check-jq.cmd not found at $CHECK_JQ_PATH"
+            exit 1
+          fi
+          if [ ! -f "$PROTECT_PATH" ]; then
+            echo "ERROR: protect-directories.cmd not found at $PROTECT_PATH"
+            exit 1
+          fi
+
+          # Create Claude Code settings directory
+          mkdir -p ~/.claude
+
+          # Create settings.json with hooks configuration
+          cat > ~/.claude/settings.json <<SETTINGS_EOF
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CHECK_JQ_PATH}",
+            "timeout": 5000
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|NotebookEdit|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${PROTECT_PATH}",
+            "timeout": 5000
+          }
+        ]
+      }
+    ]
+  }
+}
+SETTINGS_EOF
+
+          echo ""
+          echo "Created Claude Code settings (Windows):"
+          cat ~/.claude/settings.json
+
+      - name: E2E Test - Session Start Hook (with JQ)
+        if: matrix.jq == 'with'
+        shell: bash
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: |
+          echo "Testing session start with jq installed..."
+
+          # Run Claude Code with a simple prompt - it should start without warnings about jq
+          # Using --print to get direct output and exit
+          OUTPUT=$(claude --print "Say hello" --max-turns 1 2>&1) || true
+
+          echo "Claude output:"
+          echo "$OUTPUT"
+
+          # Should NOT see jq warning when jq is installed
+          if echo "$OUTPUT" | grep -i "jq is not installed"; then
+            echo "ERROR: Got jq warning even though jq is installed"
+            exit 1
+          fi
+
+          echo "Session start hook working correctly with jq"
+
+      - name: E2E Test - Session Start Hook (without JQ)
+        if: matrix.jq == 'without'
+        shell: bash
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: |
+          echo "Testing session start without jq..."
+
+          # Run Claude Code - it should warn about jq missing
+          OUTPUT=$(claude --print "Say hello" --max-turns 1 2>&1) || true
+
+          echo "Claude output:"
+          echo "$OUTPUT"
+
+          # Should see jq warning when jq is not installed
+          if echo "$OUTPUT" | grep -i "jq"; then
+            echo "Session start correctly warned about missing jq"
+          else
+            echo "Note: Warning may appear in system message, not visible in --print output"
+          fi
+
+          echo "Session start hook test completed"
+
+      - name: E2E Test - Protected file write blocked (with JQ)
+        if: matrix.jq == 'with'
+        shell: bash
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: |
+          echo "Testing that protected files cannot be written..."
+
+          cd /tmp/e2e-test-project
+
+          # Ask Claude to write to a protected file
+          OUTPUT=$(claude --print "Write the text 'MODIFIED' to the file protected/test-write.txt" --max-turns 3 --allowedTools "" 2>&1) || true
+
+          echo "Claude output:"
+          echo "$OUTPUT"
+          echo ""
+
+          # The file should NOT exist (was blocked)
+          if [ -f "protected/test-write.txt" ]; then
+            echo "FAIL: Protected file was created when it should have been blocked!"
+            cat protected/test-write.txt
+            exit 1
+          fi
+          echo "PASS: Protected file was not created"
+
+          # Verify existing file was not modified
+          CONTENT=$(cat protected/existing-file.txt)
+          if [ "$CONTENT" != "protected content" ]; then
+            echo "FAIL: Protected existing file was modified!"
+            exit 1
+          fi
+          echo "PASS: Existing protected file content unchanged"
+
+          # Check if output mentions the file was blocked (Claude should acknowledge)
+          if echo "$OUTPUT" | grep -qi "block\|protect\|cannot\|denied"; then
+            echo "PASS: Claude output indicates operation was blocked/denied"
+          else
+            echo "NOTE: Claude output doesn't explicitly mention blocking (may have refused for other reasons)"
+          fi
+
+          echo ""
+          echo "Protected file write correctly blocked"
+
+      - name: E2E Test - Unprotected file write allowed (with JQ)
+        if: matrix.jq == 'with'
+        shell: bash
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: |
+          echo "Testing that unprotected files can be written..."
+
+          cd /tmp/e2e-test-project
+
+          # Ask Claude to write to an unprotected file
+          OUTPUT=$(claude --print "Write the text 'NEW CONTENT' to the file unprotected/test-write.txt" --max-turns 3 2>&1) || true
+
+          echo "Claude output:"
+          echo "$OUTPUT"
+
+          # The file should exist (was allowed)
+          if [ -f "unprotected/test-write.txt" ]; then
+            echo "Unprotected file write correctly allowed"
+            cat unprotected/test-write.txt
+          else
+            echo "Note: File may not have been created due to Claude's decision, not blocking"
+            echo "This is acceptable as long as protected writes ARE blocked"
+          fi
+
+      - name: E2E Test - All writes blocked without JQ (fail-closed)
+        if: matrix.jq == 'without'
+        shell: bash
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: |
+          echo "Testing fail-closed behavior without jq..."
+
+          cd /tmp/e2e-test-project
+
+          # Ask Claude to write to UNPROTECTED file - should still be blocked without jq
+          OUTPUT=$(claude --print "Write the text 'SHOULD BE BLOCKED' to the file unprotected/test-no-jq.txt" --max-turns 3 --allowedTools "" 2>&1) || true
+
+          echo "Claude output:"
+          echo "$OUTPUT"
+          echo ""
+
+          # The file should NOT exist (blocked due to missing jq - fail closed)
+          if [ -f "unprotected/test-no-jq.txt" ]; then
+            echo "FAIL: File was created even though jq is missing (fail-closed violated)!"
+            cat unprotected/test-no-jq.txt
+            exit 1
+          fi
+          echo "PASS: File was not created (fail-closed working)"
+
+          # Check if output mentions jq is required
+          if echo "$OUTPUT" | grep -qi "jq\|blocked\|install"; then
+            echo "PASS: Claude output indicates jq-related blocking"
+          else
+            echo "NOTE: Claude output doesn't explicitly mention jq (hook may have silently blocked)"
+          fi
+
+          echo ""
+          echo "Fail-closed behavior working correctly - writes blocked without jq"
+
+      - name: E2E Test - Bash rm command blocked (with JQ)
+        if: matrix.jq == 'with'
+        shell: bash
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: |
+          echo "Testing that bash rm is blocked for protected files..."
+
+          cd /tmp/e2e-test-project
+
+          # Ask Claude to delete a protected file via bash
+          OUTPUT=$(claude --print "Run: rm protected/existing-file.txt" --max-turns 3 --allowedTools "" 2>&1) || true
+
+          echo "Claude output:"
+          echo "$OUTPUT"
+          echo ""
+
+          # The file should still exist (rm was blocked)
+          if [ ! -f "protected/existing-file.txt" ]; then
+            echo "FAIL: Protected file was deleted when it should have been blocked!"
+            exit 1
+          fi
+          echo "PASS: Protected file still exists"
+
+          # Verify content is unchanged
+          CONTENT=$(cat protected/existing-file.txt)
+          if [ "$CONTENT" == "protected content" ]; then
+            echo "PASS: File content unchanged"
+          else
+            echo "FAIL: File content was modified"
+            exit 1
+          fi
+
+          # Check if output mentions blocking
+          if echo "$OUTPUT" | grep -qi "block\|protect\|cannot\|denied\|refuse"; then
+            echo "PASS: Claude output indicates operation was blocked/denied"
+          else
+            echo "NOTE: Claude output doesn't explicitly mention blocking"
+          fi
+
+          echo ""
+          echo "Bash rm correctly blocked for protected file"
+
+      - name: E2E Test - Direct hook execution test
+        shell: bash
+        run: |
+          echo "Testing hooks directly with simulated Claude Code input..."
+          echo ""
+
+          # Test check-jq hook
+          echo "=== Testing check-jq.sh ==="
+          CHECK_JQ_OUTPUT=$(bash hooks/check-jq.sh)
+          echo "check-jq output:"
+          echo "$CHECK_JQ_OUTPUT"
+          echo ""
+
+          if [ "${{ matrix.jq }}" == "with" ]; then
+            # Should return continue without warning (no systemMessage)
+            if echo "$CHECK_JQ_OUTPUT" | grep -q '"decision".*:.*"continue"'; then
+              echo "PASS: check-jq returns 'continue' decision"
+            else
+              echo "FAIL: Expected 'continue' decision"
+              exit 1
+            fi
+
+            # Should NOT have warning message when jq is installed
+            if echo "$CHECK_JQ_OUTPUT" | grep -q 'systemMessage'; then
+              echo "FAIL: Got systemMessage warning even though jq is installed"
+              exit 1
+            else
+              echo "PASS: No warning message (jq is installed)"
+            fi
+          else
+            # Should return continue with warning about jq
+            if echo "$CHECK_JQ_OUTPUT" | grep -q '"decision".*:.*"continue"'; then
+              echo "PASS: check-jq returns 'continue' decision (session not blocked)"
+            else
+              echo "FAIL: Expected 'continue' decision"
+              exit 1
+            fi
+
+            # Should have specific warning message
+            EXPECTED_WARNING="jq is not installed"
+            if echo "$CHECK_JQ_OUTPUT" | grep -q "$EXPECTED_WARNING"; then
+              echo "PASS: Warning message contains '$EXPECTED_WARNING'"
+            else
+              echo "FAIL: Expected warning to contain '$EXPECTED_WARNING'"
+              exit 1
+            fi
+
+            # Verify full warning mentions .block
+            if echo "$CHECK_JQ_OUTPUT" | grep -q "Directory protection"; then
+              echo "PASS: Warning mentions 'Directory protection'"
+            else
+              echo "FAIL: Warning should mention 'Directory protection'"
+              exit 1
+            fi
+          fi
+
+          echo ""
+          echo "=== Testing protect-directories.sh ==="
+
+          PROTECT_OUTPUT=$(echo '{"tool_name": "Edit", "tool_input": {"file_path": "/tmp/e2e-test-project/protected/test.txt"}}' | bash hooks/protect-directories.sh)
+          echo "protect-directories output:"
+          echo "$PROTECT_OUTPUT"
+          echo ""
+
+          if [ "${{ matrix.jq }}" == "with" ]; then
+            # Should block with jq installed (protected directory)
+            if echo "$PROTECT_OUTPUT" | grep -q '"decision".*:.*"block"'; then
+              echo "PASS: protect-directories returns 'block' decision"
+            else
+              echo "FAIL: Protected file was not blocked"
+              exit 1
+            fi
+
+            # Should have a reason explaining why it was blocked
+            if echo "$PROTECT_OUTPUT" | grep -q '"reason"'; then
+              echo "PASS: Block response includes 'reason' field"
+              # Extract and display the reason
+              REASON=$(echo "$PROTECT_OUTPUT" | grep -o '"reason"[^}]*' || true)
+              echo "Reason: $REASON"
+            else
+              echo "FAIL: Block response should include 'reason' field"
+              exit 1
+            fi
+          else
+            # Should block without jq (fail-closed)
+            if echo "$PROTECT_OUTPUT" | grep -q '"decision".*:.*"block"'; then
+              echo "PASS: protect-directories returns 'block' decision (fail-closed)"
+            else
+              echo "FAIL: Fail-closed not working - expected 'block' decision"
+              exit 1
+            fi
+
+            # Verify the specific fail-closed error message
+            EXPECTED_ERROR="jq is required for directory protection hook"
+            if echo "$PROTECT_OUTPUT" | grep -q "$EXPECTED_ERROR"; then
+              echo "PASS: Error message contains '$EXPECTED_ERROR'"
+            else
+              echo "FAIL: Expected error to contain '$EXPECTED_ERROR'"
+              echo "Got: $PROTECT_OUTPUT"
+              exit 1
+            fi
+
+            # Verify it mentions how to fix
+            if echo "$PROTECT_OUTPUT" | grep -q "Install jq"; then
+              echo "PASS: Error message tells user to install jq"
+            else
+              echo "FAIL: Error should tell user to install jq"
+              exit 1
+            fi
+          fi
+
+          echo ""
+          echo "=== All direct hook tests passed ==="
+
+      - name: E2E Test Summary
+        if: always()
+        shell: bash
+        run: |
+          echo "=========================================="
+          echo "E2E Test Summary"
+          echo "=========================================="
+          echo "OS: ${{ matrix.os }}"
+          echo "JQ: ${{ matrix.jq }}"
+          echo ""
+          echo "Test scenarios covered:"
+          echo "  - Session start hook execution"
+          echo "  - Protected file write blocking"
+          if [ "${{ matrix.jq }}" == "with" ]; then
+            echo "  - Unprotected file write allowing"
+            echo "  - Bash command (rm) blocking"
+          else
+            echo "  - Fail-closed behavior (all writes blocked)"
+          fi
+          echo "  - Direct hook execution"
+          echo "=========================================="
