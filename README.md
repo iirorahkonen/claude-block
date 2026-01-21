@@ -144,11 +144,35 @@ When both files exist in the same directory:
 
 ## How It Works
 
-The plugin hooks into Claude's file operations. When Claude tries to modify a file, it checks for `.block` files in the target directory and parents, then allows or blocks based on your rules.
+The plugin hooks into Claude's file operations. When Claude tries to modify a file, it checks for `.block` files in the target directory and all parent directories, then combines their rules.
 
 - `.block` files themselves are always protected
 - Protection cascades to all subdirectories
-- Closest configuration to the target file takes precedence
+
+### Hierarchical Inheritance
+
+When multiple `.block` files exist in the directory hierarchy:
+
+**Blocked patterns are combined (union)**:
+```
+project/
+├── .block          → {"blocked": ["*.log", "*.tmp"]}
+└── src/
+    └── .block      → {"blocked": ["generated/**"]}
+```
+Files in `src/` are blocked if they match ANY pattern from either file (`*.log`, `*.tmp`, OR `generated/**`).
+
+**Allowed patterns override completely**:
+```
+project/
+├── .block          → {"blocked": ["*.lock"]}
+└── features/
+    └── .block      → {"allowed": ["*.ts"]}
+```
+The `allowed` in `features/` completely overrides the parent — only `*.ts` files can be modified.
+
+**Guide messages from the closest file take precedence**:
+When files are blocked by an inherited pattern, the guide message from the closest `.block` file is shown.
 
 ## Development
 

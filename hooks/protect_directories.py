@@ -44,7 +44,7 @@ import shlex
 import sys
 import warnings
 from pathlib import Path
-from typing import Optional
+from typing import Optional, cast
 
 # Regex special characters that need escaping
 REGEX_SPECIAL_CHARS = ".^$[](){}+|\\"
@@ -292,8 +292,132 @@ def get_full_path(path: str) -> str:
     return os.path.join(os.getcwd(), path)
 
 
+def _merge_hierarchical_configs(child_config: dict, parent_config: dict) -> dict:
+    """Merge child and parent configs from different directory levels.
+
+    Inheritance rules:
+    - Child .block with specific patterns overrides parent's "block all"
+    - Blocked patterns are combined (union) from both levels
+    - Allowed patterns: child completely overrides parent (no inheritance)
+    - Guide: child guide takes precedence over parent guide
+    """
+    if not parent_config:
+        return child_config
+    if not child_config:
+        return parent_config
+
+    # If either has an error, propagate it
+    if child_config.get("has_error"):
+        return child_config
+    if parent_config.get("has_error"):
+        return parent_config
+
+    child_empty = child_config.get("is_empty", True)
+    parent_empty = parent_config.get("is_empty", True)
+
+    child_guide = child_config.get("guide", "")
+    parent_guide = parent_config.get("guide", "")
+    merged_guide = child_guide if child_guide else parent_guide
+
+    # If child is empty (block all), it takes precedence over everything
+    if child_empty:
+        return _create_empty_config(guide=merged_guide)
+
+    # Child has specific patterns - check what modes are being used
+    child_has_allowed = child_config.get("has_allowed_key", False)
+    child_has_blocked = child_config.get("has_blocked_key", False)
+    parent_has_allowed = parent_config.get("has_allowed_key", False)
+    parent_has_blocked = parent_config.get("has_blocked_key", False)
+
+    # If child has allowed patterns, it completely overrides parent
+    # (regardless of whether parent is empty or has blocked patterns)
+    if child_has_allowed:
+        return _create_empty_config(
+            allowed=child_config.get("allowed", []),
+            guide=merged_guide,
+            is_empty=False,
+            has_allowed_key=True,
+        )
+
+    # Child has blocked patterns - merge with parent's blocked patterns
+    if child_has_blocked:
+        child_blocked = child_config.get("blocked", [])
+
+        # If parent is empty (block all), just use child's patterns
+        # (child's patterns are more specific)
+        if parent_empty:
+            return _create_empty_config(
+                blocked=child_blocked,
+                guide=merged_guide,
+                is_empty=False,
+                has_blocked_key=True,
+            )
+
+        # Check for mode mixing
+        if parent_has_allowed:
+            return _create_empty_config(
+                is_empty=False,
+                has_error=True,
+                error_message="Invalid configuration: parent and child .block files cannot mix allowed and blocked modes",
+            )
+
+        # Both have blocked patterns - combine them (union)
+        if parent_has_blocked:
+            parent_blocked = parent_config.get("blocked", [])
+            merged_blocked = list(child_blocked) + list(parent_blocked)
+
+            # Deduplicate while preserving order
+            seen = set()
+            unique_blocked = []
+            for item in merged_blocked:
+                key = json.dumps(item, sort_keys=True) if isinstance(item, dict) else item
+                if key not in seen:
+                    seen.add(key)
+                    unique_blocked.append(item)
+
+            return _create_empty_config(
+                blocked=unique_blocked,
+                guide=merged_guide,
+                is_empty=False,
+                has_blocked_key=True,
+            )
+
+        # Parent has no blocked patterns, just use child's
+        return _create_empty_config(
+            blocked=child_blocked,
+            guide=merged_guide,
+            is_empty=False,
+            has_blocked_key=True,
+        )
+
+    # Child has no patterns but is not empty (shouldn't happen, but handle gracefully)
+    # Fall back to parent's config with merged guide
+    if parent_has_allowed:
+        return _create_empty_config(
+            allowed=parent_config.get("allowed", []),
+            guide=merged_guide,
+            is_empty=False,
+            has_allowed_key=True,
+        )
+
+    if parent_has_blocked:
+        return _create_empty_config(
+            blocked=parent_config.get("blocked", []),
+            guide=merged_guide,
+            is_empty=False,
+            has_blocked_key=True,
+        )
+
+    return _create_empty_config(guide=merged_guide)
+
+
 def test_directory_protected(file_path: str) -> Optional[dict]:
-    """Test if directory is protected, returns protection info or None."""
+    """Test if directory is protected, returns protection info or None.
+
+    Walks up the entire directory tree collecting all .block files,
+    then merges their configurations. Child configs inherit parent
+    blocked patterns (combined) but can override guides.
+    """
     if not file_path:
         return None
 
@@ -310,9 +434,13 @@ def test_directory_protected(file_path: str) -> Optional[dict]:
     if not directory:
         return None
 
-    while directory:
-        marker_path = os.path.join(directory, MARKER_FILE_NAME)
-        local_marker_path = os.path.join(directory, LOCAL_MARKER_FILE_NAME)
+    # Collect all configs from hierarchy (child to parent order)
+    configs_with_dirs = []
+
+    current_dir = directory
+    while current_dir:
+        marker_path = os.path.join(current_dir, MARKER_FILE_NAME)
+        local_marker_path = os.path.join(current_dir, LOCAL_MARKER_FILE_NAME)
         has_main = os.path.isfile(marker_path)
         has_local = os.path.isfile(local_marker_path)
 
@@ -334,20 +462,43 @@ def test_directory_protected(file_path: str) -> Optional[dict]:
                 local_config = None
 
             merged_config = merge_configs(main_config, local_config)
-
-            return {
-                "target_file": file_path,
+            configs_with_dirs.append({
+                "config": merged_config,
                 "marker_path": effective_marker_path,
-                "marker_directory": directory,
-                "config": merged_config
-            }
+                "marker_directory": current_dir,
+            })
 
-        parent = os.path.dirname(directory)
-        if parent == directory:
+        parent = os.path.dirname(current_dir)
+        if parent == current_dir:
             break
-        directory = parent
+        current_dir = parent
 
-    return None
+    if not configs_with_dirs:
+        return None
+
+    # Merge all configs from child to parent
+    # Start with the closest (child) config and merge parents into it
+    final_config = cast("dict", configs_with_dirs[0]["config"])
+    closest_marker_path = cast("Optional[str]", configs_with_dirs[0]["marker_path"])
+    closest_marker_dir = cast("str", configs_with_dirs[0]["marker_directory"])
+
+    for i in range(1, len(configs_with_dirs)):
+        parent_config = cast("dict", configs_with_dirs[i]["config"])
+        final_config = _merge_hierarchical_configs(final_config, parent_config)
+
+    # Build marker path description if multiple .block files are involved
+    if len(configs_with_dirs) > 1:
+        marker_paths = [cast("str", c["marker_path"]) for c in configs_with_dirs if c["marker_path"]]
+        effective_marker_path = " + ".join(marker_paths)
+    else:
+        effective_marker_path = closest_marker_path
+
+    return {
+        "target_file": file_path,
+        "marker_path": effective_marker_path,
+        "marker_directory": closest_marker_dir,
+        "config": final_config
+    }
 
 
 def get_bash_target_paths(command: str) -> list:

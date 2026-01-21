@@ -164,6 +164,85 @@ class TestPathPatterns:
         assert is_blocked(stdout)
 
 
+class TestHierarchicalBlockedPatternInheritance:
+    """Tests for blocked pattern inheritance across directory hierarchy."""
+
+    def test_child_inherits_parent_blocked_patterns(self, test_dir, hooks_dir):
+        """Child should inherit parent's blocked patterns."""
+        # Parent blocks *.verified.* and *.received.*
+        parent_dir = test_dir / "parent"
+        create_block_file(parent_dir, '{"blocked": ["*.verified.*", "*.received.*"]}')
+
+        # Child has more specific patterns
+        child_dir = parent_dir / "child"
+        child_dir.mkdir(parents=True)
+        create_block_file(child_dir, '{"blocked": ["*.verified.json", "*.received.json"]}')
+
+        # File matching child pattern should be blocked
+        input_json = make_edit_input(str(child_dir / "test.verified.json"))
+        exit_code, stdout, stderr = run_hook(hooks_dir, input_json)
+        assert is_blocked(stdout)
+
+        # File matching ONLY parent pattern should ALSO be blocked (inheritance)
+        input_json = make_edit_input(str(child_dir / "test.verified.txt"))
+        exit_code, stdout, stderr = run_hook(hooks_dir, input_json)
+        assert is_blocked(stdout), "Parent's blocked patterns should be inherited by child"
+
+        # File matching neither pattern should be allowed
+        input_json = make_edit_input(str(child_dir / "normal.txt"))
+        exit_code, stdout, stderr = run_hook(hooks_dir, input_json)
+        assert not is_blocked(stdout)
+
+    def test_child_guide_takes_precedence_over_parent_guide(self, test_dir, hooks_dir):
+        """Child's guide message should take precedence over parent's."""
+        parent_dir = test_dir / "parent"
+        create_block_file(parent_dir, '{"blocked": ["*.secret"], "guide": "Parent guide message"}')
+
+        child_dir = parent_dir / "child"
+        child_dir.mkdir(parents=True)
+        create_block_file(child_dir, '{"blocked": ["*.private"], "guide": "Child guide message"}')
+
+        # File blocked by parent pattern should show child's guide
+        input_json = make_edit_input(str(child_dir / "test.secret"))
+        exit_code, stdout, stderr = run_hook(hooks_dir, input_json)
+        assert is_blocked(stdout)
+        assert "Child guide message" in stdout
+
+    def test_deeply_nested_inherits_all_ancestor_patterns(self, test_dir, hooks_dir):
+        """Deeply nested directory should inherit patterns from all ancestors."""
+        # Root blocks *.log
+        root_dir = test_dir / "root"
+        create_block_file(root_dir, '{"blocked": ["*.log"]}')
+
+        # Level1 blocks *.tmp
+        level1_dir = root_dir / "level1"
+        level1_dir.mkdir(parents=True)
+        create_block_file(level1_dir, '{"blocked": ["*.tmp"]}')
+
+        # Level2 blocks *.bak
+        level2_dir = level1_dir / "level2"
+        level2_dir.mkdir(parents=True)
+        create_block_file(level2_dir, '{"blocked": ["*.bak"]}')
+
+        # All patterns from ancestors should be blocked at level2
+        input_json = make_edit_input(str(level2_dir / "test.log"))
+        exit_code, stdout, stderr = run_hook(hooks_dir, input_json)
+        assert is_blocked(stdout), "Root's *.log should be inherited"
+
+        input_json = make_edit_input(str(level2_dir / "test.tmp"))
+        exit_code, stdout, stderr = run_hook(hooks_dir, input_json)
+        assert is_blocked(stdout), "Level1's *.tmp should be inherited"
+
+        input_json = make_edit_input(str(level2_dir / "test.bak"))
+        exit_code, stdout, stderr = run_hook(hooks_dir, input_json)
+        assert is_blocked(stdout), "Level2's own *.bak should work"
+
+        # Unblocked pattern should be allowed
+        input_json = make_edit_input(str(level2_dir / "normal.txt"))
+        exit_code, stdout, stderr = run_hook(hooks_dir, input_json)
+        assert not is_blocked(stdout)
+
+
 class TestProtectionGuarantees:
     """Tests to verify protection guarantees."""
 
