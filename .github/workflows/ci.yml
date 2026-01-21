@@ -156,9 +156,19 @@ jobs:
         run: |
           pytest tests/ -v --tb=short
 
-      # Note: Direct hook tests are skipped on Windows because Git Bash and Python
-      # handle Windows paths differently. The pytest tests provide full coverage
-      # using Python's tempfile module which handles paths correctly.
+      - name: Test hook via cmd.exe (Windows-specific)
+        shell: cmd
+        run: |
+          mkdir %TEMP%\block-cmd-test
+          echo {} > %TEMP%\block-cmd-test\.block
+          echo {"tool_name": "Edit", "tool_input": {"file_path": "%TEMP%/block-cmd-test/test.txt"}} | hooks\run-hook.cmd protect_directories.py > %TEMP%\cmd-output.txt 2>&1
+          type %TEMP%\cmd-output.txt
+          findstr /C:"block" %TEMP%\cmd-output.txt > nul
+          if errorlevel 1 (
+            echo FAIL: Expected block decision from cmd.exe test
+            exit /b 1
+          )
+          echo PASS: cmd.exe hook execution works correctly
 
   lint:
     name: Python Linting and Type Checking
@@ -240,11 +250,11 @@ jobs:
             exit 1
           fi
 
-          # Check Windows wrapper
-          if [ -f "hooks/protect-directories.cmd" ]; then
-            echo "Found: hooks/protect-directories.cmd"
+          # Check polyglot entry point
+          if [ -f "hooks/run-hook.cmd" ]; then
+            echo "Found: hooks/run-hook.cmd"
           else
-            echo "ERROR: Missing hooks/protect-directories.cmd"
+            echo "ERROR: Missing hooks/run-hook.cmd"
             exit 1
           fi
 
@@ -275,20 +285,20 @@ jobs:
         run: |
           # Get the absolute path to the plugin root
           PLUGIN_ROOT="${GITHUB_WORKSPACE}"
-          PROTECT_PATH="${PLUGIN_ROOT}/hooks/protect-directories.sh"
+          RUN_HOOK_PATH="${PLUGIN_ROOT}/hooks/run-hook.cmd"
 
-          echo "Hook path: $PROTECT_PATH"
+          echo "Hook path: $RUN_HOOK_PATH"
 
           # Verify files exist
-          if [ ! -f "$PROTECT_PATH" ]; then
-            echo "ERROR: protect-directories.sh not found at $PROTECT_PATH"
+          if [ ! -f "$RUN_HOOK_PATH" ]; then
+            echo "ERROR: run-hook.cmd not found at $RUN_HOOK_PATH"
             exit 1
           fi
 
           # Create Claude Code settings directory
           mkdir -p ~/.claude
 
-          # Create settings.json with hooks configuration
+          # Create settings.json with hooks configuration using polyglot entry point
           cat > ~/.claude/settings.json <<EOF
           {
             "hooks": {
@@ -298,7 +308,7 @@ jobs:
                   "hooks": [
                     {
                       "type": "command",
-                      "command": "${PROTECT_PATH}",
+                      "command": "\"${RUN_HOOK_PATH}\" protect_directories.py",
                       "timeout": 5000
                     }
                   ]
@@ -317,20 +327,20 @@ jobs:
         shell: bash
         run: |
           PLUGIN_ROOT="${GITHUB_WORKSPACE}"
-          PROTECT_PATH="${PLUGIN_ROOT}/hooks/protect-directories.cmd"
+          RUN_HOOK_PATH="${PLUGIN_ROOT}/hooks/run-hook.cmd"
 
-          echo "Hook path (Windows): $PROTECT_PATH"
+          echo "Hook path (Windows): $RUN_HOOK_PATH"
 
           # Verify files exist
-          if [ ! -f "$PROTECT_PATH" ]; then
-            echo "ERROR: protect-directories.cmd not found at $PROTECT_PATH"
+          if [ ! -f "$RUN_HOOK_PATH" ]; then
+            echo "ERROR: run-hook.cmd not found at $RUN_HOOK_PATH"
             exit 1
           fi
 
           # Create Claude Code settings directory
           mkdir -p ~/.claude
 
-          # Create settings.json with hooks configuration
+          # Create settings.json with hooks configuration using polyglot entry point
           cat > ~/.claude/settings.json <<EOF
           {
             "hooks": {
@@ -340,7 +350,7 @@ jobs:
                   "hooks": [
                     {
                       "type": "command",
-                      "command": "${PROTECT_PATH}",
+                      "command": "\"${RUN_HOOK_PATH}\" protect_directories.py",
                       "timeout": 5000
                     }
                   ]
