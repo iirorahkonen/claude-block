@@ -374,11 +374,13 @@ jobs:
             echo "Claude exit was due to hook blocking (expected)"
           fi
 
-          # Verify hook blocking message appeared in output
+          # Verify hook blocking message appeared in output (required to confirm hook was invoked)
           if echo "$OUTPUT" | grep -qiE "block|protected|\.block"; then
             echo "PASS: Hook blocking message detected in output"
           else
-            echo "WARNING: No hook blocking message detected in output"
+            echo "FAIL: No hook blocking message detected in output"
+            echo "The hook may not have been invoked - this is a false positive!"
+            exit 1
           fi
 
           # The file should NOT exist (was blocked)
