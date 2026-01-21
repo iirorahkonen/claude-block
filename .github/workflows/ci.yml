@@ -263,60 +263,17 @@ jobs:
         run: |
           # Create project-level settings.json with hook configuration
           HOOK_PATH="${GITHUB_WORKSPACE}/hooks/run-hook.cmd"
+          echo "Hook path: $HOOK_PATH"
+
+          # Verify hook exists
+          if [ ! -f "$HOOK_PATH" ]; then
+            echo "ERROR: run-hook.cmd not found at $HOOK_PATH"
+            exit 1
+          fi
+
           printf '%s\n' "{\"hooks\":{\"PreToolUse\":[{\"matcher\":\"Edit|Write|NotebookEdit|Bash\",\"hooks\":[{\"type\":\"command\",\"command\":\"${HOOK_PATH}\",\"timeout\":5000}]}]}}" > "${E2E_DIR}/.claude/settings.json"
           echo "Created project-level settings:"
           cat "${E2E_DIR}/.claude/settings.json"
-
-      - name: Configure Claude Code with plugin hooks (Unix)
-        if: runner.os != 'Windows'
-        shell: bash
-        run: |
-          # Get the absolute path to the plugin root
-          PLUGIN_ROOT="${GITHUB_WORKSPACE}"
-          RUN_HOOK_PATH="${PLUGIN_ROOT}/hooks/run-hook.cmd"
-
-          echo "Hook path: $RUN_HOOK_PATH"
-
-          # Verify files exist
-          if [ ! -f "$RUN_HOOK_PATH" ]; then
-            echo "ERROR: run-hook.cmd not found at $RUN_HOOK_PATH"
-            exit 1
-          fi
-
-          # Create Claude Code settings directory
-          mkdir -p ~/.claude
-
-          # Create settings.json with hooks configuration using polyglot entry point
-          printf '%s\n' "{\"hooks\":{\"PreToolUse\":[{\"matcher\":\"Edit|Write|NotebookEdit|Bash\",\"hooks\":[{\"type\":\"command\",\"command\":\"${RUN_HOOK_PATH}\",\"timeout\":5000}]}]}}" > ~/.claude/settings.json
-
-          echo ""
-          echo "Created Claude Code settings:"
-          cat ~/.claude/settings.json
-
-      - name: Configure Claude Code with plugin hooks (Windows)
-        if: runner.os == 'Windows'
-        shell: bash
-        run: |
-          PLUGIN_ROOT="${GITHUB_WORKSPACE}"
-          RUN_HOOK_PATH="${PLUGIN_ROOT}/hooks/run-hook.cmd"
-
-          echo "Hook path (Windows): $RUN_HOOK_PATH"
-
-          # Verify files exist
-          if [ ! -f "$RUN_HOOK_PATH" ]; then
-            echo "ERROR: run-hook.cmd not found at $RUN_HOOK_PATH"
-            exit 1
-          fi
-
-          # Create Claude Code settings directory
-          mkdir -p ~/.claude
-
-          # Create settings.json with hooks configuration using polyglot entry point
-          printf '%s\n' "{\"hooks\":{\"PreToolUse\":[{\"matcher\":\"Edit|Write|NotebookEdit|Bash\",\"hooks\":[{\"type\":\"command\",\"command\":\"${RUN_HOOK_PATH}\",\"timeout\":5000}]}]}}" > ~/.claude/settings.json
-
-          echo ""
-          echo "Created Claude Code settings (Windows):"
-          cat ~/.claude/settings.json
 
       - name: E2E Test - Protected file write blocked
         shell: bash
