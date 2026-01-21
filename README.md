@@ -29,18 +29,6 @@ Drop a `.block` file in any directory to control what Claude can and cannot edit
 /plugin install block@block-marketplace
 ```
 
-## Requirements
-
-- **jq** — A lightweight JSON processor ([download](https://jqlang.github.io/jq/download/))
-
-The plugin checks for jq at session start and warns if missing.
-
-**Fallback behavior when jq is not installed:**
-- No `.block` file in directory or any parent: operations proceed normally
-- `.block` file exists in directory or any parent: all file operations are blocked as a safety measure
-
-This fail-closed approach ensures protected directories remain protected even if jq is unavailable.
-
 ## Usage
 
 Use the `/block:create` command to interactively create a `.block` file:
@@ -183,8 +171,7 @@ pytest tests/ -v --cov=hooks --cov-report=term-missing
 block/
 ├── hooks/
 │   ├── protect_directories.py   # Main protection logic
-│   ├── protect-directories.sh   # Unix wrapper
-│   └── protect-directories.cmd  # Windows wrapper
+│   └── run-hook.cmd             # Cross-platform entry point
 ├── tests/
 │   ├── conftest.py              # Shared fixtures
 │   ├── test_basic_protection.py
