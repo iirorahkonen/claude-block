@@ -478,17 +478,17 @@ def test_directory_protected(file_path: str) -> Optional[dict]:
 
     # Merge all configs from child to parent
     # Start with the closest (child) config and merge parents into it
-    final_config = cast(dict, configs_with_dirs[0]["config"])
-    closest_marker_path = cast(Optional[str], configs_with_dirs[0]["marker_path"])
-    closest_marker_dir = cast(str, configs_with_dirs[0]["marker_directory"])
+    final_config = cast("dict", configs_with_dirs[0]["config"])
+    closest_marker_path = cast("Optional[str]", configs_with_dirs[0]["marker_path"])
+    closest_marker_dir = cast("str", configs_with_dirs[0]["marker_directory"])
 
     for i in range(1, len(configs_with_dirs)):
-        parent_config = cast(dict, configs_with_dirs[i]["config"])
+        parent_config = cast("dict", configs_with_dirs[i]["config"])
         final_config = _merge_hierarchical_configs(final_config, parent_config)
 
     # Build marker path description if multiple .block files are involved
     if len(configs_with_dirs) > 1:
-        marker_paths = [cast(str, c["marker_path"]) for c in configs_with_dirs if c["marker_path"]]
+        marker_paths = [cast("str", c["marker_path"]) for c in configs_with_dirs if c["marker_path"]]
         effective_marker_path = " + ".join(marker_paths)
     else:
         effective_marker_path = closest_marker_path
