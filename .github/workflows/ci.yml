@@ -278,23 +278,23 @@ jobs:
 
           # Create settings.json with hooks configuration using polyglot entry point
           cat > ~/.claude/settings.json <<EOF
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|NotebookEdit|Bash",
+        "hooks": [
           {
-            "hooks": {
-              "PreToolUse": [
-                {
-                  "matcher": "Edit|Write|NotebookEdit|Bash",
-                  "hooks": [
-                    {
-                      "type": "command",
-                      "command": "\"${RUN_HOOK_PATH}\"",
-                      "timeout": 5000
-                    }
-                  ]
-                }
-              ]
-            }
+            "type": "command",
+            "command": "${RUN_HOOK_PATH}",
+            "timeout": 5000
           }
-          EOF
+        ]
+      }
+    ]
+  }
+}
+EOF
 
           echo ""
           echo "Created Claude Code settings:"
@@ -320,23 +320,23 @@ jobs:
 
           # Create settings.json with hooks configuration using polyglot entry point
           cat > ~/.claude/settings.json <<EOF
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|NotebookEdit|Bash",
+        "hooks": [
           {
-            "hooks": {
-              "PreToolUse": [
-                {
-                  "matcher": "Edit|Write|NotebookEdit|Bash",
-                  "hooks": [
-                    {
-                      "type": "command",
-                      "command": "\"${RUN_HOOK_PATH}\"",
-                      "timeout": 5000
-                    }
-                  ]
-                }
-              ]
-            }
+            "type": "command",
+            "command": "${RUN_HOOK_PATH}",
+            "timeout": 5000
           }
-          EOF
+        ]
+      }
+    ]
+  }
+}
+EOF
 
           echo ""
           echo "Created Claude Code settings (Windows):"
@@ -367,7 +367,8 @@ jobs:
           if [ $CLAUDE_EXIT -ne 0 ]; then
             echo "Claude exited with code $CLAUDE_EXIT"
             # Only fail if it's not an expected hook block
-            if ! echo "$OUTPUT" | grep -qiE "block|protected|\.block"; then
+            # Match "blocked" or ".block" but NOT "protected" (appears in path name)
+            if ! echo "$OUTPUT" | grep -qiE "blocked|\.block|hook"; then
               echo "FAIL: Claude failed unexpectedly (not due to hook blocking)"
               exit 1
             fi
@@ -375,7 +376,8 @@ jobs:
           fi
 
           # Verify hook blocking message appeared in output (required to confirm hook was invoked)
-          if echo "$OUTPUT" | grep -qiE "block|protected|\.block"; then
+          # Match "blocked" or ".block" but NOT "protected" (appears in path name)
+          if echo "$OUTPUT" | grep -qiE "blocked|\.block|hook"; then
             echo "PASS: Hook blocking message detected in output"
           else
             echo "FAIL: No hook blocking message detected in output"
