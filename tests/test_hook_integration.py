@@ -1,11 +1,12 @@
-"""Integration tests for the hook entry point (run-hook.cmd)."""
+"""Integration tests for the protect_directories.py hook."""
 
 import subprocess
+import sys
 from pathlib import Path
 
 # Get the hooks directory as absolute path
 HOOKS_DIR = (Path(__file__).parent.parent / "hooks").resolve()
-RUN_HOOK = HOOKS_DIR / "run-hook.cmd"
+PROTECT_SCRIPT = HOOKS_DIR / "protect_directories.py"
 
 
 def to_posix_path(path) -> str:
@@ -15,21 +16,18 @@ def to_posix_path(path) -> str:
 
 def run_hook(input_json: str, cwd: str = None) -> tuple[str, int]:
     """Run the hook with given JSON input and return (output, exit_code)."""
-    # Use bash on all platforms (Git Bash on Windows)
-    # This tests the Unix path of the polyglot script
     result = subprocess.run(
-        ["bash", str(RUN_HOOK)],
+        [sys.executable, str(PROTECT_SCRIPT)],
         input=input_json,
         capture_output=True,
         text=True,
         cwd=cwd,
-        shell=False,
     )
     return result.stdout + result.stderr, result.returncode
 
 
 class TestHookIntegration:
-    """Test the run-hook.cmd polyglot entry point."""
+    """Test the protect_directories.py hook directly."""
 
     def test_blocks_when_block_file_exists(self, tmp_path):
         """Hook should block when .block file exists in directory."""
