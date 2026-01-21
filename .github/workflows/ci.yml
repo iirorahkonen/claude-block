@@ -187,6 +187,22 @@ jobs:
           )
           echo PASS: Hook allows operations without .block file
 
+      - name: Test hook detects .block in parent directory
+        shell: cmd
+        run: |
+          REM Create parent with .block, child without
+          mkdir %TEMP%\parent-block-test\child
+          echo {} > %TEMP%\parent-block-test\.block
+          cd %TEMP%\parent-block-test\child
+          echo {"tool_name": "Edit", "tool_input": {"file_path": "test.txt"}} | %GITHUB_WORKSPACE%\hooks\run-hook.cmd > %TEMP%\parent-output.txt 2>&1
+          type %TEMP%\parent-output.txt
+          findstr /C:"block" %TEMP%\parent-output.txt > nul
+          if errorlevel 1 (
+            echo FAIL: Expected block decision when .block in parent directory
+            exit /b 1
+          )
+          echo PASS: Hook detects .block in parent directory
+
   lint:
     name: Python Linting and Type Checking
     runs-on: ubuntu-latest
