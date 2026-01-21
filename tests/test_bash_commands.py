@@ -171,3 +171,91 @@ class TestBashCommands:
         exit_code, stdout, stderr = run_hook(hooks_dir, input_json)
 
         assert is_blocked(stdout)
+
+
+class TestBashCommandsQuotedPaths:
+    """Tests for bash commands with quoted paths containing spaces."""
+
+    def test_touch_with_double_quoted_path(self, test_dir, hooks_dir):
+        """Should detect touch command with double-quoted path containing spaces."""
+        project_dir = test_dir / "project"
+        create_block_file(project_dir)
+        input_json = make_bash_input(f'touch "{project_dir}/my file.txt"')
+
+        exit_code, stdout, stderr = run_hook(hooks_dir, input_json)
+
+        assert is_blocked(stdout)
+
+    def test_touch_with_single_quoted_path(self, test_dir, hooks_dir):
+        """Should detect touch command with single-quoted path containing spaces."""
+        project_dir = test_dir / "project"
+        create_block_file(project_dir)
+        input_json = make_bash_input(f"touch '{project_dir}/my file.txt'")
+
+        exit_code, stdout, stderr = run_hook(hooks_dir, input_json)
+
+        assert is_blocked(stdout)
+
+    def test_rm_with_quoted_path_containing_spaces(self, test_dir, hooks_dir):
+        """Should detect rm command with quoted path containing spaces."""
+        project_dir = test_dir / "project"
+        create_block_file(project_dir)
+        input_json = make_bash_input(f'rm "{project_dir}/my important file.txt"')
+
+        exit_code, stdout, stderr = run_hook(hooks_dir, input_json)
+
+        assert is_blocked(stdout)
+
+    def test_mkdir_with_quoted_path(self, test_dir, hooks_dir):
+        """Should detect mkdir command with quoted path."""
+        project_dir = test_dir / "project"
+        create_block_file(project_dir)
+        input_json = make_bash_input(f'mkdir -p "{project_dir}/new dir/sub dir"')
+
+        exit_code, stdout, stderr = run_hook(hooks_dir, input_json)
+
+        assert is_blocked(stdout)
+
+    def test_mv_with_both_paths_quoted(self, test_dir, hooks_dir):
+        """Should detect mv command with both source and destination quoted."""
+        project_dir = test_dir / "project"
+        create_block_file(project_dir)
+        other_dir = test_dir / "other"
+        other_dir.mkdir(parents=True)
+        input_json = make_bash_input(f'mv "{other_dir}/source file.txt" "{project_dir}/dest file.txt"')
+
+        exit_code, stdout, stderr = run_hook(hooks_dir, input_json)
+
+        assert is_blocked(stdout)
+
+    def test_cp_with_quoted_paths(self, test_dir, hooks_dir):
+        """Should detect cp command with quoted paths."""
+        project_dir = test_dir / "project"
+        create_block_file(project_dir)
+        other_dir = test_dir / "other"
+        other_dir.mkdir(parents=True)
+        input_json = make_bash_input(f'cp "{other_dir}/source.txt" "{project_dir}/my dest.txt"')
+
+        exit_code, stdout, stderr = run_hook(hooks_dir, input_json)
+
+        assert is_blocked(stdout)
+
+    def test_redirect_to_quoted_path(self, test_dir, hooks_dir):
+        """Should detect output redirection to quoted path."""
+        project_dir = test_dir / "project"
+        create_block_file(project_dir)
+        input_json = make_bash_input(f'echo "hello" > "{project_dir}/my output.txt"')
+
+        exit_code, stdout, stderr = run_hook(hooks_dir, input_json)
+
+        assert is_blocked(stdout)
+
+    def test_tee_with_quoted_path(self, test_dir, hooks_dir):
+        """Should detect tee command with quoted path."""
+        project_dir = test_dir / "project"
+        create_block_file(project_dir)
+        input_json = make_bash_input(f'echo "hello" | tee "{project_dir}/my output.txt"')
+
+        exit_code, stdout, stderr = run_hook(hooks_dir, input_json)
+
+        assert is_blocked(stdout)

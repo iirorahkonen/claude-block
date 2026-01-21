@@ -70,3 +70,38 @@ class TestWildcards:
         input_json = make_edit_input(str(project_dir / "appXconfigXts"))
         exit_code, stdout, stderr = run_hook(hooks_dir, input_json)
         assert exit_code == 0
+
+    def test_double_asterisk_slash_at_root_matches_root_files(self, test_dir, hooks_dir):
+        """Double asterisk + slash at pattern start should match files at root level."""
+        project_dir = test_dir / "project"
+        # Pattern **/file.txt should match file.txt at root AND nested/file.txt
+        create_block_file(project_dir, '{"blocked": ["**/file.txt"]}')
+        nested_dir = project_dir / "nested"
+        nested_dir.mkdir(parents=True)
+
+        # Should match file at root
+        input_json = make_edit_input(str(project_dir / "file.txt"))
+        exit_code, stdout, stderr = run_hook(hooks_dir, input_json)
+        assert is_blocked(stdout)
+
+        # Should also match nested file
+        input_json = make_edit_input(str(nested_dir / "file.txt"))
+        exit_code, stdout, stderr = run_hook(hooks_dir, input_json)
+        assert is_blocked(stdout)
+
+        # Should NOT match different filename
+        input_json = make_edit_input(str(project_dir / "other.txt"))
+        exit_code, stdout, stderr = run_hook(hooks_dir, input_json)
+        assert exit_code == 0
+
+    def test_double_asterisk_slash_matches_deeply_nested(self, test_dir, hooks_dir):
+        """Double asterisk + slash should match files at any depth."""
+        project_dir = test_dir / "project"
+        create_block_file(project_dir, '{"blocked": ["**/config.json"]}')
+        deep_dir = project_dir / "a" / "b" / "c" / "d"
+        deep_dir.mkdir(parents=True)
+
+        # Should match deeply nested config.json
+        input_json = make_edit_input(str(deep_dir / "config.json"))
+        exit_code, stdout, stderr = run_hook(hooks_dir, input_json)
+        assert is_blocked(stdout)

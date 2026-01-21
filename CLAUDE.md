@@ -11,6 +11,13 @@ This is a Claude Code plugin that provides file and directory protection using `
 The plugin uses Claude Code's hook system:
 - **PreToolUse hook**: Runs `protect_directories.py` to check if the target file is protected before allowing Edit, Write, NotebookEdit, or Bash operations
 
+### Why No SessionStart Hook?
+
+Unlike the bash implementation which required a SessionStart hook to verify `jq` is installed, the Python implementation:
+- Uses only Python standard library (no external dependencies)
+- Eliminates the need for dependency checks at session start
+- Starts faster with no SessionStart overhead
+
 Key files:
 - `hooks/hooks.json` - Hook configuration that triggers protection checks
 - `hooks/protect_directories.py` - Main protection logic (Python)

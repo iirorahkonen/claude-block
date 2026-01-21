@@ -21,19 +21,6 @@ When both files exist in the same directory, they are merged:
   { "guide": "message" } = common guide shown when blocked (fallback for patterns without specific guide)
   Both allowed and blocked = error (invalid configuration)
 
-Agent-specific permissions (optional):
-  {
-    "agents": {
-      "agent-name": { "allowed": ["pattern"] },
-      "other-agent": { "blocked": ["pattern"] },
-      "*": { "blocked": [] }
-    },
-    "guide": "message"
-  }
-  Agent names match the subagent_type from Task tool invocations.
-  Use "*" as a wildcard/default for unmatched agents.
-  When "agents" is present, top-level allowed/blocked are ignored.
-
 Patterns can be strings or objects with per-pattern guides:
   "pattern" = simple pattern (uses common guide as fallback)
   { "pattern": "...", "guide": "..." } = pattern with specific guide
@@ -41,7 +28,6 @@ Patterns can be strings or objects with per-pattern guides:
 Examples:
   { "blocked": ["*.secret", { "pattern": "config/**", "guide": "Config files protected." }] }
   { "allowed": ["docs/**", { "pattern": "src/gen/**", "guide": "Generated files." }], "guide": "Fallback" }
-  { "agents": { "tdd-test-writer": { "allowed": ["**/*.test.ts"] }, "*": { "blocked": [] } } }
 
 Guide priority: pattern-specific guide > common guide > default message
 
@@ -54,70 +40,42 @@ Patterns support wildcards:
 import json
 import os
 import re
+import shlex
 import sys
+import warnings
 from pathlib import Path
 from typing import Optional
+
+# Regex special characters that need escaping
+REGEX_SPECIAL_CHARS = ".^$[](){}+|\\"
 
 MARKER_FILE_NAME = ".block"
 LOCAL_MARKER_FILE_NAME = ".block.local"
 
-# Global: Current agent type (detected from transcript)
-CURRENT_AGENT_TYPE = ""
 
-
-def get_current_agent_type(transcript_path: str) -> str:
-    """Get current agent type from transcript.
-
-    Parses the transcript to find the most recent Task tool invocation's subagent_type.
-    Returns agent type string (e.g., "tdd-test-writer") or empty if main agent/unknown.
-    """
-    if not transcript_path or not os.path.isfile(transcript_path):
-        return ""
-
-    agent_type = ""
-
-    try:
-        # Read last 100 lines to limit processing
-        with open(transcript_path, encoding="utf-8") as f:
-            lines = f.readlines()[-100:]
-    except OSError:
-        return ""
-
-    for line in lines:
-        try:
-            entry = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-
-        extracted = None
-
-        # Try message.content array path (for assistant messages with tool_use)
-        if "message" in entry and "content" in entry["message"]:
-            for content_item in entry["message"]["content"]:
-                if isinstance(content_item, dict) and content_item.get("name") == "Task":
-                    input_data = content_item.get("input", {})
-                    if "subagent_type" in input_data:
-                        extracted = input_data["subagent_type"]
-                        break
-
-        # Try direct tool_input path
-        if not extracted and "tool_input" in entry:
-            extracted = entry["tool_input"].get("subagent_type")
-
-        # Try content array directly
-        if not extracted and "content" in entry:
-            for content_item in entry["content"]:
-                if isinstance(content_item, dict) and content_item.get("name") == "Task":
-                    input_data = content_item.get("input", {})
-                    if "subagent_type" in input_data:
-                        extracted = input_data["subagent_type"]
-                        break
-
-        if extracted and extracted != "null":
-            agent_type = extracted
-            # Don't break - we want the LAST (most recent) match
-
-    return agent_type
+def _create_empty_config(  # noqa: PLR0913
+    allowed: Optional[list] = None,
+    blocked: Optional[list] = None,
+    guide: str = "",
+    is_empty: bool = True,
+    has_error: bool = False,
+    error_message: str = "",
+    has_allowed_key: bool = False,
+    has_blocked_key: bool = False,
+    allow_all: bool = False,
+) -> dict:
+    """Create an empty config dict with optional overrides."""
+    return {
+        "allowed": allowed if allowed is not None else [],
+        "blocked": blocked if blocked is not None else [],
+        "guide": guide,
+        "is_empty": is_empty,
+        "has_error": has_error,
+        "error_message": error_message,
+        "has_allowed_key": has_allowed_key,
+        "has_blocked_key": has_blocked_key,
+        "allow_all": allow_all,
+    }
 
 
 def has_block_file_in_hierarchy(directory: str) -> bool:
@@ -137,7 +95,6 @@ def has_block_file_in_hierarchy(directory: str) -> bool:
 
 def extract_path_without_json(input_str: str) -> Optional[str]:
     """Extract file path from JSON without full parsing (fallback)."""
-    import re
     match = re.search(r'"(file_path|notebook_path)"\s*:\s*"([^"]*)"', input_str)
     if match:
         return match.group(2)
@@ -161,9 +118,11 @@ def convert_wildcard_to_regex(pattern: str) -> str:
                 # **/ at start = optionally match any path + /
                 if at_start and next2_char == "/":
                     result.append("(.*/)?")
-                    i += 2  # Skip ** and /
+                    # Skip 2 extra chars (second * and /), loop adds 1 for first * = 3 total
+                    i += 2
                 else:
                     result.append(".*")
+                    # Skip 1 extra char (second *), loop adds 1 for first * = 2 total
                     i += 1
             else:
                 result.append("[^/]*")
@@ -174,7 +133,7 @@ def convert_wildcard_to_regex(pattern: str) -> str:
         elif char == "/":
             result.append("/")
             # After a /, we might have **/ again - don't reset at_start
-        elif char in ".^$[](){}+|\\":
+        elif char in REGEX_SPECIAL_CHARS:
             result.append(f"\\{char}")
             at_start = False
         else:
@@ -182,7 +141,7 @@ def convert_wildcard_to_regex(pattern: str) -> str:
             at_start = False
         i += 1
 
-    return f"^{(''.join(result))}$"
+    return f"^{''.join(result)}$"
 
 
 def test_path_matches_pattern(path: str, pattern: str, base_path: str) -> bool:
@@ -202,26 +161,14 @@ def test_path_matches_pattern(path: str, pattern: str, base_path: str) -> bool:
 
     try:
         return bool(re.match(regex, relative_path))
-    except re.error:
+    except re.error as e:
+        warnings.warn(f"Invalid regex pattern '{pattern}' (converted: '{regex}'): {e}", stacklevel=2)
         return False
 
 
-def get_lock_file_config(marker_path: str, current_agent_type: str = "") -> dict:
-    """Get lock file configuration.
-
-    If agents field is present, resolves config for current_agent_type.
-    """
-    config = {
-        "allowed": [],
-        "blocked": [],
-        "guide": "",
-        "is_empty": True,
-        "has_error": False,
-        "error_message": "",
-        "has_allowed_key": False,
-        "has_blocked_key": False,
-        "allow_all": False
-    }
+def get_lock_file_config(marker_path: str) -> dict:
+    """Get lock file configuration."""
+    config = _create_empty_config()
 
     if not os.path.isfile(marker_path):
         return config
@@ -243,62 +190,7 @@ def get_lock_file_config(marker_path: str, current_agent_type: str = "") -> dict
     # Extract guide (applies to all modes)
     config["guide"] = data.get("guide", "")
 
-    # Check for agents field (agent-specific permissions)
-    if "agents" in data:
-        agents_config = data["agents"]
-
-        # Try to get config for current agent type
-        agent_config = None
-        if current_agent_type and current_agent_type in agents_config:
-            agent_config = agents_config[current_agent_type]
-
-        # Fall back to wildcard "*" if no specific agent config
-        if agent_config is None and "*" in agents_config:
-            agent_config = agents_config["*"]
-
-        # If still no config, block everything (no matching agent rule)
-        if agent_config is None:
-            return config
-
-        # Extract allowed/blocked from agent config
-        agent_has_allowed = "allowed" in agent_config
-        agent_has_blocked = "blocked" in agent_config
-
-        # Check for both allowed and blocked in agent config (error)
-        if agent_has_allowed and agent_has_blocked:
-            config["has_error"] = True
-            agent_name = current_agent_type or "*"
-            config["error_message"] = f'Invalid .block: agent "{agent_name}" cannot specify both allowed and blocked lists'
-            return config
-
-        # Extract agent-specific guide if present
-        if "guide" in agent_config:
-            config["guide"] = agent_config["guide"]
-
-        # Extract allowed list from agent config
-        if agent_has_allowed:
-            allowed_list = agent_config["allowed"]
-            config["allowed"] = allowed_list
-            config["has_allowed_key"] = True
-            if len(allowed_list) > 0:
-                config["is_empty"] = False
-            # Empty allowed array means "allow nothing" (block all)
-
-        # Extract blocked list from agent config
-        if agent_has_blocked:
-            blocked_list = agent_config["blocked"]
-            config["blocked"] = blocked_list
-            config["has_blocked_key"] = True
-            if len(blocked_list) > 0:
-                config["is_empty"] = False
-            else:
-                # Empty blocked array means "block nothing" (allow all)
-                config["is_empty"] = False
-                config["allow_all"] = True
-
-        return config
-
-    # Traditional mode (no agents field) - check for top-level allowed/blocked
+    # Check for top-level allowed/blocked
     has_allowed = "allowed" in data
     has_blocked = "blocked" in data
 
@@ -338,17 +230,7 @@ def merge_configs(main_config: dict, local_config: Optional[dict]) -> dict:
         main_guide = main_config.get("guide", "")
         effective_guide = local_guide if local_guide else main_guide
 
-        return {
-            "allowed": [],
-            "blocked": [],
-            "guide": effective_guide,
-            "is_empty": True,
-            "has_error": False,
-            "error_message": "",
-            "has_allowed_key": False,
-            "has_blocked_key": False,
-            "allow_all": False
-        }
+        return _create_empty_config(guide=effective_guide)
 
     # Check if keys are present (not just if arrays have items)
     main_has_allowed_key = main_config.get("has_allowed_key", False)
@@ -358,17 +240,11 @@ def merge_configs(main_config: dict, local_config: Optional[dict]) -> dict:
 
     # Check for mode mixing
     if (main_has_allowed_key and local_has_blocked_key) or (main_has_blocked_key and local_has_allowed_key):
-        return {
-            "allowed": [],
-            "blocked": [],
-            "guide": "",
-            "is_empty": False,
-            "has_error": True,
-            "error_message": "Invalid configuration: .block and .block.local cannot mix allowed and blocked modes",
-            "has_allowed_key": False,
-            "has_blocked_key": False,
-            "allow_all": False
-        }
+        return _create_empty_config(
+            is_empty=False,
+            has_error=True,
+            error_message="Invalid configuration: .block and .block.local cannot mix allowed and blocked modes",
+        )
 
     local_guide = local_config.get("guide", "")
     main_guide = main_config.get("guide", "")
@@ -386,17 +262,12 @@ def merge_configs(main_config: dict, local_config: Optional[dict]) -> dict:
                 seen.add(key)
                 unique_blocked.append(item)
 
-        return {
-            "allowed": [],
-            "blocked": unique_blocked,
-            "guide": merged_guide,
-            "is_empty": False,
-            "has_error": False,
-            "error_message": "",
-            "has_allowed_key": False,
-            "has_blocked_key": True,
-            "allow_all": False
-        }
+        return _create_empty_config(
+            blocked=unique_blocked,
+            guide=merged_guide,
+            is_empty=False,
+            has_blocked_key=True,
+        )
 
     if main_has_allowed_key or local_has_allowed_key:
         if local_has_allowed_key:
@@ -404,29 +275,14 @@ def merge_configs(main_config: dict, local_config: Optional[dict]) -> dict:
         else:
             merged_allowed = main_config.get("allowed", [])
 
-        return {
-            "allowed": merged_allowed,
-            "blocked": [],
-            "guide": merged_guide,
-            "is_empty": False,
-            "has_error": False,
-            "error_message": "",
-            "has_allowed_key": True,
-            "has_blocked_key": False,
-            "allow_all": False
-        }
+        return _create_empty_config(
+            allowed=merged_allowed,
+            guide=merged_guide,
+            is_empty=False,
+            has_allowed_key=True,
+        )
 
-    return {
-        "allowed": [],
-        "blocked": [],
-        "guide": merged_guide,
-        "is_empty": True,
-        "has_error": False,
-        "error_message": "",
-        "has_allowed_key": False,
-        "has_blocked_key": False,
-        "allow_all": False
-    }
+    return _create_empty_config(guide=merged_guide)
 
 
 def get_full_path(path: str) -> str:
@@ -436,13 +292,19 @@ def get_full_path(path: str) -> str:
     return os.path.join(os.getcwd(), path)
 
 
-def test_directory_protected(file_path: str, current_agent_type: str = "") -> Optional[dict]:
+def test_directory_protected(file_path: str) -> Optional[dict]:
     """Test if directory is protected, returns protection info or None."""
     if not file_path:
         return None
 
     file_path = get_full_path(file_path)
     file_path = file_path.replace("\\", "/")
+
+    # Explicit path traversal check per best practices
+    # Block paths containing ".." components to prevent directory traversal attacks
+    if ".." in file_path.split("/"):
+        return None
+
     directory = os.path.dirname(file_path)
 
     if not directory:
@@ -456,22 +318,14 @@ def test_directory_protected(file_path: str, current_agent_type: str = "") -> Op
 
         if has_main or has_local:
             if has_main:
-                main_config = get_lock_file_config(marker_path, current_agent_type)
+                main_config = get_lock_file_config(marker_path)
                 effective_marker_path = marker_path
             else:
-                main_config = {
-                    "allowed": [],
-                    "blocked": [],
-                    "guide": "",
-                    "is_empty": True,
-                    "has_error": False,
-                    "error_message": "",
-                    "allow_all": False
-                }
+                main_config = _create_empty_config()
                 effective_marker_path = None
 
             if has_local:
-                local_config = get_lock_file_config(local_marker_path, current_agent_type)
+                local_config = get_lock_file_config(local_marker_path)
                 if not has_main:
                     effective_marker_path = local_marker_path
                 else:
@@ -496,42 +350,180 @@ def test_directory_protected(file_path: str, current_agent_type: str = "") -> Op
     return None
 
 
+def _extract_paths_from_tokens(tokens: list, command_handlers: dict) -> list:
+    """Extract paths from pre-tokenized command list."""
+    paths = []
+    i = 0
+    while i < len(tokens):
+        token = tokens[i]
+        if token in command_handlers:
+            handler = command_handlers[token]
+            args = []
+            i += 1
+            # Collect non-option arguments
+            while i < len(tokens) and not tokens[i].startswith("-"):
+                if tokens[i] in ("|", ";", "&", "&&", "||"):
+                    break
+                args.append(tokens[i])
+                i += 1
+            # Skip option arguments
+            while i < len(tokens) and tokens[i].startswith("-"):
+                i += 1
+                # Skip option values if needed
+                if (
+                    i < len(tokens)
+                    and not tokens[i].startswith("-")
+                    and tokens[i] not in ("|", ";", "&", "&&", "||")
+                    and not tokens[i - 1].endswith("f")
+                ):
+                    continue
+            # Apply handler to get paths from args
+            paths.extend(handler(args))
+        else:
+            i += 1
+    return paths
+
+
 def get_bash_target_paths(command: str) -> list:
-    """Extract target paths from bash commands."""
+    """Extract target paths from bash commands.
+
+    Uses shlex for proper handling of quoted paths with spaces.
+    Falls back to regex-based extraction if shlex parsing fails.
+    """
     if not command:
         return []
 
     paths = []
 
+    # Try shlex-based extraction first for better quoted path handling
+    try:
+        tokens = shlex.split(command)
+        # Commands that take paths as arguments
+        single_path_cmds = {"touch", "mkdir", "rmdir", "tee"}
+        multi_path_cmds = {"rm", "mv", "cp"}
+
+        i = 0
+        while i < len(tokens):
+            token = tokens[i]
+
+            # Handle redirection (>)
+            if ">" in token and token != ">":
+                # Handle cases like ">file" or ">>file"
+                redirect_path = token.lstrip(">").strip()
+                if redirect_path and not redirect_path.startswith("-"):
+                    paths.append(redirect_path)
+                i += 1
+                continue
+
+            if (token == ">" or token == ">>") and i + 1 < len(tokens):
+                # Next token is the file
+                path = tokens[i + 1]
+                if path and not path.startswith("-"):
+                    paths.append(path)
+                i += 2
+                continue
+
+            # Handle of= for dd command
+            if token.startswith("of="):
+                path = token[3:]
+                if path and not path.startswith("-"):
+                    paths.append(path)
+                i += 1
+                continue
+
+            if token in single_path_cmds:
+                # Collect all non-option arguments as paths
+                i += 1
+                while i < len(tokens):
+                    arg = tokens[i]
+                    if arg.startswith("-"):
+                        i += 1
+                        continue
+                    if arg in ("|", ";", "&", "&&", "||", ">", ">>"):
+                        break
+                    paths.append(arg)
+                    i += 1
+                continue
+
+            if token in multi_path_cmds:
+                # Collect all non-option arguments as paths
+                i += 1
+                while i < len(tokens):
+                    arg = tokens[i]
+                    if arg.startswith("-"):
+                        i += 1
+                        continue
+                    if arg in ("|", ";", "&", "&&", "||", ">", ">>"):
+                        break
+                    paths.append(arg)
+                    i += 1
+                continue
+
+            i += 1
+
+    except ValueError:
+        # shlex parsing failed (e.g., unmatched quotes), fall back to regex
+        pass
+
+    # Regex-based fallback for edge cases and additional coverage
     patterns = [
+        (r'\brm\s+(?:-[rRfiv]+\s+)*"([^"]+)"', 1),
+        (r"\brm\s+(?:-[rRfiv]+\s+)*'([^']+)'", 1),
         (r'\brm\s+(?:-[rRfiv]+\s+)*([^\s|;&]+)', 1),
+        (r'\btouch\s+"([^"]+)"', 1),
+        (r"\btouch\s+'([^']+)'", 1),
         (r'\btouch\s+([^\s|;&]+)', 1),
+        (r'\bmkdir\s+(?:-p\s+)?"([^"]+)"', 1),
+        (r"\bmkdir\s+(?:-p\s+)?'([^']+)'", 1),
         (r'\bmkdir\s+(?:-p\s+)?([^\s|;&]+)', 1),
+        (r'\brmdir\s+"([^"]+)"', 1),
+        (r"\brmdir\s+'([^']+)'", 1),
         (r'\brmdir\s+([^\s|;&]+)', 1),
+        (r'>\s*"([^"]+)"', 1),
+        (r">\s*'([^']+)'", 1),
         (r'>\s*([^\s|;&>]+)', 1),
+        (r'\btee\s+(?:-a\s+)?"([^"]+)"', 1),
+        (r"\btee\s+(?:-a\s+)?'([^']+)'", 1),
         (r'\btee\s+(?:-a\s+)?([^\s|;&]+)', 1),
+        (r'\bof="([^"]+)"', 1),
+        (r"\bof='([^']+)'", 1),
         (r'\bof=([^\s|;&]+)', 1),
     ]
 
     for pattern, group in patterns:
         for match in re.finditer(pattern, command):
-            path = match.group(group).strip("'\"")
+            path = match.group(group)
             if path and not path.startswith("-"):
                 paths.append(path)
 
-    mv_match = re.search(r'\bmv\s+(?:-[fiv]+\s+)*([^\s|;&]+)\s+([^\s|;&]+)', command)
-    if mv_match:
-        for g in [1, 2]:
-            path = mv_match.group(g).strip("'\"")
-            if path and not path.startswith("-"):
-                paths.append(path)
+    # Handle mv and cp with quoted paths
+    mv_patterns = [
+        r'\bmv\s+(?:-[fiv]+\s+)*"([^"]+)"\s+"([^"]+)"',
+        r"\bmv\s+(?:-[fiv]+\s+)*'([^']+)'\s+'([^']+)'",
+        r'\bmv\s+(?:-[fiv]+\s+)*([^\s|;&]+)\s+([^\s|;&]+)',
+    ]
+    for pattern in mv_patterns:
+        mv_match = re.search(pattern, command)
+        if mv_match:
+            for g in [1, 2]:
+                path = mv_match.group(g)
+                if path and not path.startswith("-"):
+                    paths.append(path)
+            break
 
-    cp_match = re.search(r'\bcp\s+(?:-[rRfiv]+\s+)*([^\s|;&]+)\s+([^\s|;&]+)', command)
-    if cp_match:
-        for g in [1, 2]:
-            path = cp_match.group(g).strip("'\"")
-            if path and not path.startswith("-"):
-                paths.append(path)
+    cp_patterns = [
+        r'\bcp\s+(?:-[rRfiv]+\s+)*"([^"]+)"\s+"([^"]+)"',
+        r"\bcp\s+(?:-[rRfiv]+\s+)*'([^']+)'\s+'([^']+)'",
+        r'\bcp\s+(?:-[rRfiv]+\s+)*([^\s|;&]+)\s+([^\s|;&]+)',
+    ]
+    for pattern in cp_patterns:
+        cp_match = re.search(pattern, command)
+        if cp_match:
+            for g in [1, 2]:
+                path = cp_match.group(g)
+                if path and not path.startswith("-"):
+                    paths.append(path)
+            break
 
     return list(set(paths))
 
@@ -703,10 +695,6 @@ def main():
     if not tool_name:
         sys.exit(0)
 
-    # Detect current agent type from transcript (if available)
-    transcript_path = data.get("transcript_path", "")
-    current_agent_type = get_current_agent_type(transcript_path) if transcript_path else ""
-
     tool_input = data.get("tool_input", {})
     paths_to_check = []
 
@@ -734,7 +722,7 @@ def main():
             if os.path.isfile(full_path):
                 block_marker_removal(full_path)
 
-        protection_info = test_directory_protected(path, current_agent_type)
+        protection_info = test_directory_protected(path)
 
         if protection_info:
             target_file = protection_info["target_file"]
