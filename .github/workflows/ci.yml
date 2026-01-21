@@ -295,9 +295,9 @@ jobs:
           echo "Testing hook directly..."
           echo '{"tool_name":"Write","tool_input":{"file_path":"'"$(pwd)/protected/test-write.txt"'","content":"test"}}' | python "${HOOK_PATH%run-hook.cmd}protect_directories.py" || echo "Direct hook test exited with $?"
 
-          # Ask Claude to write to a protected file, passing settings directly with debug
+          # Ask Claude to write to a protected file using json output mode
           set +e
-          OUTPUT=$(claude --print --debug "hooks" --settings "$SETTINGS_JSON" "Write the text 'MODIFIED' to the file protected/test-write.txt" --max-turns 3 --allowedTools "Write" 2>&1)
+          OUTPUT=$(claude --print --output-format json --debug "hooks" --settings "$SETTINGS_JSON" "Write the text 'MODIFIED' to the file protected/test-write.txt" --max-turns 3 --allowedTools "Write" 2>&1)
           CLAUDE_EXIT=$?
           set -e
 
@@ -344,9 +344,9 @@ jobs:
           # Build settings JSON with hook configuration
           SETTINGS_JSON="{\"hooks\":{\"PreToolUse\":[{\"matcher\":\"Edit|Write|NotebookEdit|Bash\",\"hooks\":[{\"type\":\"command\",\"command\":\"${HOOK_PATH}\",\"timeout\":5000}]}]}}"
 
-          # Ask Claude to write to an unprotected file, passing settings directly
+          # Ask Claude to write to an unprotected file using json output mode
           set +e
-          OUTPUT=$(claude --print --settings "$SETTINGS_JSON" "Write the text 'NEW CONTENT' to the file unprotected/test-write.txt" --max-turns 3 --allowedTools "Write" 2>&1)
+          OUTPUT=$(claude --print --output-format json --settings "$SETTINGS_JSON" "Write the text 'NEW CONTENT' to the file unprotected/test-write.txt" --max-turns 3 --allowedTools "Write" 2>&1)
           CLAUDE_EXIT=$?
           set -e
 
