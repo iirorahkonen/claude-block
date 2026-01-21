@@ -171,8 +171,7 @@ pytest tests/ -v --cov=hooks --cov-report=term-missing
 block/
 ├── hooks/
 │   ├── protect_directories.py   # Main protection logic
-│   ├── protect-directories.sh   # Unix wrapper
-│   └── protect-directories.cmd  # Windows wrapper
+│   └── run-hook.cmd             # Cross-platform entry point
 ├── tests/
 │   ├── conftest.py              # Shared fixtures
 │   ├── test_basic_protection.py
