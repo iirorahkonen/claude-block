@@ -133,6 +133,88 @@ class TestChildDirBlockWithRelativePaths:
         assert is_blocked(stdout), f"Expected block for grandchild .block, got: {stdout}"
 
 
+class TestChildDirBlockEdgeCases:
+    """Tests for edge cases in child directory block detection."""
+
+    def test_rm_rf_with_trailing_slash_blocked_by_child_block(self, test_dir, hooks_dir):
+        """rm -rf parent/ (trailing slash) should be blocked by child .block."""
+        parent_dir = test_dir / "parent"
+        child_dir = parent_dir / "child"
+        child_dir.mkdir(parents=True)
+        create_block_file(child_dir)
+
+        input_json = make_bash_input(f"rm -rf {parent_dir}/")
+        exit_code, stdout, stderr = run_hook(hooks_dir, input_json)
+
+        assert is_blocked(stdout), (
+            f"Expected block for trailing slash path. Got: {stdout}"
+        )
+
+    def test_rm_rf_dot_blocked_by_child_block(self, test_dir, hooks_dir):
+        """rm -rf . should be blocked when child directory has .block file."""
+        child_dir = test_dir / "protected_child"
+        child_dir.mkdir(parents=True)
+        create_block_file(child_dir)
+
+        input_json = make_bash_input("rm -rf .")
+        exit_code, stdout, stderr = run_hook(hooks_dir, input_json, cwd=test_dir)
+
+        assert is_blocked(stdout), (
+            f"Expected block for '.' with child .block. Got: {stdout}"
+        )
+
+    def test_rm_file_inside_parent_does_not_trigger_descendant_check(
+        self, test_dir, hooks_dir
+    ):
+        """rm on a file inside parent should not be blocked by sibling child .block."""
+        parent_dir = test_dir / "parent"
+        child_dir = parent_dir / "child"
+        child_dir.mkdir(parents=True)
+        create_block_file(child_dir)
+
+        # Target is a file, not a directory — descendant check should not apply
+        target_file = parent_dir / "somefile.txt"
+        target_file.write_text("content")
+        input_json = make_bash_input(f"rm {target_file}")
+        exit_code, stdout, stderr = run_hook(hooks_dir, input_json)
+
+        assert not is_blocked(stdout), (
+            f"rm on a file should not be blocked by sibling .block. Got: {stdout}"
+        )
+
+    def test_chained_rm_rf_blocked_by_child_block(self, test_dir, hooks_dir):
+        """rm -rf in chained command should be blocked by child .block."""
+        parent_dir = test_dir / "parent"
+        child_dir = parent_dir / "child"
+        child_dir.mkdir(parents=True)
+        create_block_file(child_dir)
+
+        input_json = make_bash_input(f"rm -rf {parent_dir} && echo done")
+        exit_code, stdout, stderr = run_hook(hooks_dir, input_json)
+
+        assert is_blocked(stdout), (
+            f"Expected block for chained command. Got: {stdout}"
+        )
+
+    def test_rm_rf_blocks_when_block_in_target_dir_itself(self, test_dir, hooks_dir):
+        """rm -rf dir should be blocked when .block is in the target dir itself.
+
+        This catches the case where test_directory_protected misses the .block
+        because dirname('dir') goes to the parent, skipping dir/.block.
+        The descendant check finds it via os.walk.
+        """
+        target_dir = test_dir / "target"
+        target_dir.mkdir(parents=True)
+        create_block_file(target_dir)
+
+        input_json = make_bash_input(f"rm -rf {target_dir}")
+        exit_code, stdout, stderr = run_hook(hooks_dir, input_json)
+
+        assert is_blocked(stdout), (
+            f"Expected block when .block is in target dir itself. Got: {stdout}"
+        )
+
+
 class TestChildDirBlockWithGuides:
     """Tests that guide messages from child .block files are shown."""
 
