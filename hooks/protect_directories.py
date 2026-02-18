@@ -645,6 +645,32 @@ def get_bash_target_paths(command: str) -> list:
     return list(set(paths))
 
 
+def check_descendant_block_files(dir_path: str) -> Optional[str]:
+    """Check if a directory contains .block files in any descendant directory.
+
+    When a command targets a parent directory (e.g., rm -rf parent/),
+    this scans child directories for .block or .block.local files to prevent
+    bypassing directory-level protections by operating on a parent directory.
+
+    Returns path to first .block file found, or None.
+    """
+    dir_path = get_full_path(dir_path)
+    dir_path = dir_path.replace("\\", "/").rstrip("/")
+
+    if not os.path.isdir(dir_path):
+        return None
+
+    try:
+        for root, dirs, files in os.walk(dir_path):
+            if MARKER_FILE_NAME in files:
+                return os.path.join(root, MARKER_FILE_NAME)
+            if LOCAL_MARKER_FILE_NAME in files:
+                return os.path.join(root, LOCAL_MARKER_FILE_NAME)
+    except OSError:
+        pass
+    return None
+
+
 def test_is_marker_file(file_path: str) -> bool:
     """Check if path is a marker file (main or local)."""
     if not file_path:
@@ -856,6 +882,17 @@ def main():
                 block_config_error(marker_path, reason)
             elif should_block:
                 block_with_message(target_file, marker_path, reason, result_guide)
+
+        # Check if path targets a directory with protected descendants.
+        # This prevents bypassing child directory protections by operating
+        # on a parent directory (e.g., rm -rf parent/ when parent/child/.block exists).
+        full_path = get_full_path(path)
+        if os.path.isdir(full_path):
+            descendant_marker = check_descendant_block_files(full_path)
+            if descendant_marker:
+                config = get_lock_file_config(descendant_marker)
+                guide = config.get("guide", "")
+                block_with_message(full_path, descendant_marker, "Child directory is protected", guide)
 
     sys.exit(0)
 
