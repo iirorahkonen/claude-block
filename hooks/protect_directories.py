@@ -645,6 +645,83 @@ def get_bash_target_paths(command: str) -> list:
     return list(set(paths))
 
 
+def get_merged_dir_config(directory: str) -> Optional[dict]:
+    """Read and merge .block and .block.local configs for a single directory.
+
+    Returns a dict with 'config', 'marker_path' keys, or None if
+    neither marker file exists. Mirrors the per-directory merging
+    logic in test_directory_protected().
+    """
+    main_marker = os.path.join(directory, MARKER_FILE_NAME)
+    local_marker = os.path.join(directory, LOCAL_MARKER_FILE_NAME)
+    has_main = os.path.isfile(main_marker)
+    has_local = os.path.isfile(local_marker)
+
+    if not has_main and not has_local:
+        return None
+
+    main_config = (
+        get_lock_file_config(main_marker)
+        if has_main
+        else _create_empty_config()
+    )
+    local_config = (
+        get_lock_file_config(local_marker) if has_local else None
+    )
+    merged = merge_configs(main_config, local_config)
+
+    if has_main and has_local:
+        effective_path = f"{main_marker} (+ .local)"
+    elif has_main:
+        effective_path = main_marker
+    else:
+        effective_path = local_marker
+
+    return {"config": merged, "marker_path": effective_path}
+
+
+def check_descendant_block_files(dir_path: str) -> Optional[str]:
+    """Check if a directory contains .block files in any descendant directory.
+
+    When a command targets a parent directory (e.g., rm -rf parent/),
+    this scans child directories for .block or .block.local files to prevent
+    bypassing directory-level protections by operating on a parent directory.
+
+    Returns path to first .block file found, or None.
+    """
+    dir_path = get_full_path(dir_path)
+
+    if not os.path.isdir(dir_path):
+        return None
+
+    normalized = os.path.normpath(dir_path)
+
+    def _walk_error(err: OSError) -> None:
+        warnings.warn(
+            f"check_descendant_block_files: cannot read "
+            f"'{err.filename}' under '{dir_path}': {err}",
+            stacklevel=2,
+        )
+
+    try:
+        for root, _dirs, files in os.walk(
+            dir_path, onerror=_walk_error,
+        ):
+            if os.path.normpath(root) == normalized:
+                continue
+            if MARKER_FILE_NAME in files:
+                return os.path.join(root, MARKER_FILE_NAME)
+            if LOCAL_MARKER_FILE_NAME in files:
+                return os.path.join(root, LOCAL_MARKER_FILE_NAME)
+    except OSError as exc:
+        warnings.warn(
+            f"check_descendant_block_files: os.walk failed "
+            f"for '{dir_path}': {exc}",
+            stacklevel=2,
+        )
+    return None
+
+
 def test_is_marker_file(file_path: str) -> bool:
     """Check if path is a marker file (main or local)."""
     if not file_path:
@@ -856,6 +933,33 @@ def main():
                 block_config_error(marker_path, reason)
             elif should_block:
                 block_with_message(target_file, marker_path, reason, result_guide)
+
+        # Check if path targets a directory with its own or descendant .block files.
+        # test_directory_protected() uses dirname() which may skip the target
+        # directory itself when the path has no trailing slash. We handle both
+        # the target directory and its descendants explicitly here.
+        full_path = get_full_path(path)
+        if os.path.isdir(full_path):
+            # Check the target directory itself for .block files.
+            dir_info = get_merged_dir_config(full_path)
+            if dir_info:
+                guide = dir_info["config"].get("guide", "")
+                block_with_message(
+                    full_path, dir_info["marker_path"],
+                    "Directory is protected", guide,
+                )
+
+            # Check descendant directories for .block files.
+            descendant_marker = check_descendant_block_files(full_path)
+            if descendant_marker:
+                marker_dir = os.path.dirname(descendant_marker)
+                desc_info = get_merged_dir_config(marker_dir)
+                if desc_info:
+                    guide = desc_info["config"].get("guide", "")
+                    block_with_message(
+                        full_path, desc_info["marker_path"],
+                        "Child directory is protected", guide,
+                    )
 
     sys.exit(0)
 
