@@ -4,19 +4,23 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a Claude Code plugin that provides file and directory protection using `.block` configuration files. When installed, the plugin intercepts file modification operations (Edit, Write, NotebookEdit, Bash) and blocks them based on protection rules.
+This plugin provides file and directory protection using `.block` configuration files. It supports both **Claude Code** and **OpenCode**. When installed, the plugin intercepts file modification operations and blocks them based on protection rules.
 
 ## Architecture
 
-The plugin uses Claude Code's hook system:
-- **PreToolUse hook**: Runs `protect_directories.py` to check if the target file is protected before allowing Edit, Write, NotebookEdit, or Bash operations
+The core protection logic lives in `hooks/protect_directories.py` (Python, no external dependencies). Both Claude Code and OpenCode integrations call this script.
 
-Key files:
-- `hooks/hooks.json` - Hook configuration that triggers protection checks
-- `hooks/protect_directories.py` - Main protection logic (Python, no external dependencies)
+### Claude Code integration
+- **PreToolUse hook**: Runs `protect_directories.py` to check if the target file is protected before allowing Edit, Write, NotebookEdit, or Bash operations
+- `hooks/hooks.json` - Hook configuration
 - `hooks/run-hook.cmd` - Cross-platform entry point (polyglot script)
 - `commands/create.md` - Interactive command for creating `.block` files
 - `.claude-plugin/plugin.json` - Plugin metadata
+
+### OpenCode integration
+- **tool.execute.before hook**: TypeScript plugin that calls `protect_directories.py` before edit, write, bash, or patch operations
+- `opencode/index.ts` - Plugin entry point
+- `opencode/package.json` - npm package metadata
 
 ## Dependencies
 

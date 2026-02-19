@@ -1,8 +1,8 @@
 # Block
 
-**A Claude Code plugin to protect files from unwanted modifications.**
+**Protect files from unwanted AI modifications in [Claude Code](https://docs.anthropic.com/en/docs/claude-code) and [OpenCode](https://opencode.ai).**
 
-Drop a `.block` file in any directory to control what Claude can and cannot edit. Protect configs, lock files, migrations, or entire directories with simple pattern rules.
+Drop a `.block` file in any directory to control what AI agents can and cannot edit. Protect configs, lock files, migrations, or entire directories with simple pattern rules.
 
 ## Why use this?
 
@@ -17,6 +17,8 @@ Drop a `.block` file in any directory to control what Claude can and cannot edit
 
 ## Installation
 
+### Claude Code
+
 1. Register the marketplace:
 
 ```
@@ -28,6 +30,37 @@ Drop a `.block` file in any directory to control what Claude can and cannot edit
 ```
 /plugin install block@block-marketplace
 ```
+
+### OpenCode
+
+Add the plugin to your `opencode.json` config:
+
+```json
+{
+  "plugins": ["opencode-block"]
+}
+```
+
+Or for local development, clone this repo and reference the plugin directly:
+
+```json
+{
+  "plugins": ["file:///path/to/block/opencode/index.ts"]
+}
+```
+
+You can also set up the plugin manually by copying files into your project. The plugin expects `hooks/protect_directories.py` to be a sibling of the directory containing `index.ts`:
+
+```
+your-project/
+├── .opencode/
+│   └── plugin/
+│       └── index.ts              # copied from opencode/index.ts
+├── hooks/
+│   └── protect_directories.py    # copied from hooks/protect_directories.py
+```
+
+> **Note:** The `tool.execute.before` hook protects tools called by the primary agent. Tools invoked by subagents spawned via the `task` tool may not be intercepted.
 
 ## Usage
 
@@ -144,7 +177,10 @@ When both files exist in the same directory:
 
 ## How It Works
 
-The plugin hooks into Claude's file operations. When Claude tries to modify a file, it checks for `.block` files in the target directory and all parent directories, then combines their rules.
+The plugin hooks into file operations from Claude Code and OpenCode. When the AI agent tries to modify a file, the plugin checks for `.block` files in the target directory and all parent directories, then combines their rules.
+
+- **Claude Code**: Uses a PreToolUse hook to intercept Edit, Write, NotebookEdit, and Bash tools
+- **OpenCode**: Uses a `tool.execute.before` hook to intercept edit, write, bash, and patch tools
 
 - `.block` files themselves are always protected
 - Protection cascades to all subdirectories
@@ -194,8 +230,11 @@ pytest tests/ -v --cov=hooks --cov-report=term-missing
 ```
 block/
 ├── hooks/
-│   ├── protect_directories.py   # Main protection logic
-│   └── run-hook.cmd             # Cross-platform entry point
+│   ├── protect_directories.py   # Main protection logic (Python)
+│   └── run-hook.cmd             # Cross-platform entry point (Claude Code)
+├── opencode/
+│   ├── index.ts                 # OpenCode plugin entry point
+│   └── package.json             # npm package metadata
 ├── tests/
 │   ├── conftest.py              # Shared fixtures
 │   ├── test_basic_protection.py
@@ -210,9 +249,9 @@ block/
 │   ├── test_wildcards.py
 │   └── test_edge_cases.py
 ├── commands/
-│   └── create.md                # Interactive command
+│   └── create.md                # Interactive command (Claude Code)
 ├── .claude-plugin/
-│   └── plugin.json              # Plugin metadata
+│   └── plugin.json              # Plugin metadata (Claude Code)
 └── pyproject.toml               # Python project config
 ```
 
