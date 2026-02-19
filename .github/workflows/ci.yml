@@ -529,6 +529,9 @@ jobs:
     runs-on: ubuntu-latest
     needs: [version, tag]
     if: github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      id-token: write
 
     steps:
       - name: Checkout repository
@@ -551,5 +554,3 @@ jobs:
         run: |
           cd opencode
           npm publish --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
