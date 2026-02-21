@@ -140,6 +140,35 @@ Keep Claude focused on specific directories during feature work:
 }
 ```
 
+### Agent-Specific Rules (Claude Code only)
+
+Scope protection to specific subagent types. For example, block a code-review agent from modifying source files:
+
+```text
+src/
+└── .block      → {"agents": ["code-reviewer"]}
+```
+
+This blocks the `code-reviewer` subagent from writing to `src/`. Other subagents and the main agent are unaffected — the `.block` file is skipped for them.
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `agents` | `string[]` | Subagent types this `.block` file applies to (others are skipped). Main agent is always skipped. |
+| `disable_main_agent` | `bool` | When `true`, the main agent is skipped (for use without `agents`) |
+
+**Truth table:**
+
+*"Skipped" means this `.block` file is skipped — other `.block` files may still block.*
+
+| Config | Main agent | Listed subagents | Other subagents |
+|--------|-----------|-----------------|-----------------|
+| No agent keys | Blocked | Blocked | Blocked |
+| `agents: ["TestCreator"]` | Skipped | Blocked | Skipped |
+| `disable_main_agent: true` | Skipped | Blocked | Blocked |
+| Both keys set | Skipped | Blocked | Skipped |
+| `agents: []` | Skipped | Skipped | Skipped |
+
+
 ## Pattern Syntax
 
 | Pattern | Description |
@@ -231,7 +260,9 @@ pytest tests/ -v --cov=hooks --cov-report=term-missing
 block/
 ├── hooks/
 │   ├── protect_directories.py   # Main protection logic (Python)
-│   └── run-hook.cmd             # Cross-platform entry point (Claude Code)
+│   ├── subagent_tracker.py      # Subagent event tracker (Claude Code)
+│   ├── run-hook.cmd             # Cross-platform entry point (Claude Code)
+│   └── run-subagent-hook.cmd    # Subagent hook entry point (Claude Code)
 ├── opencode/
 │   ├── index.ts                 # OpenCode plugin entry point
 │   └── package.json             # npm package metadata

@@ -63,6 +63,10 @@ def _create_empty_config(  # noqa: PLR0913
     has_allowed_key: bool = False,
     has_blocked_key: bool = False,
     allow_all: bool = False,
+    agents: Optional[list] = None,
+    disable_main_agent: bool = False,
+    has_agents_key: bool = False,
+    has_disable_main_agent_key: bool = False,
 ) -> dict:
     """Create an empty config dict with optional overrides."""
     return {
@@ -75,6 +79,10 @@ def _create_empty_config(  # noqa: PLR0913
         "has_allowed_key": has_allowed_key,
         "has_blocked_key": has_blocked_key,
         "allow_all": allow_all,
+        "agents": agents,
+        "disable_main_agent": disable_main_agent,
+        "has_agents_key": has_agents_key,
+        "has_disable_main_agent_key": has_disable_main_agent_key,
     }
 
 
@@ -209,7 +217,39 @@ def get_lock_file_config(marker_path: str) -> dict:
         config["has_blocked_key"] = True
         config["is_empty"] = False
 
+    # Parse agent-scoping keys (with type validation)
+    if "agents" in data:
+        agents_val = data["agents"]
+        if isinstance(agents_val, list):
+            config["agents"] = agents_val
+            config["has_agents_key"] = True
+    if "disable_main_agent" in data:
+        disable_val = data["disable_main_agent"]
+        if isinstance(disable_val, bool):
+            config["disable_main_agent"] = disable_val
+            config["has_disable_main_agent_key"] = True
+
     return config
+
+
+def _merge_agent_fields(primary: dict, fallback: dict) -> dict:
+    """Compute merged agent fields where primary overrides fallback (if primary has the key)."""
+    result = {}
+    if primary.get("has_agents_key"):
+        result["agents"] = primary.get("agents")
+        result["has_agents_key"] = True
+    elif fallback.get("has_agents_key"):
+        result["agents"] = fallback.get("agents")
+        result["has_agents_key"] = True
+
+    if primary.get("has_disable_main_agent_key"):
+        result["disable_main_agent"] = primary.get("disable_main_agent", False)
+        result["has_disable_main_agent_key"] = True
+    elif fallback.get("has_disable_main_agent_key"):
+        result["disable_main_agent"] = fallback.get("disable_main_agent", False)
+        result["has_disable_main_agent_key"] = True
+
+    return result
 
 
 def merge_configs(main_config: dict, local_config: Optional[dict]) -> dict:
@@ -222,6 +262,9 @@ def merge_configs(main_config: dict, local_config: Optional[dict]) -> dict:
     if local_config.get("has_error"):
         return local_config
 
+    # Local overrides main for agent fields
+    agent_fields = _merge_agent_fields(local_config, main_config)
+
     main_empty = main_config.get("is_empty", True)
     local_empty = local_config.get("is_empty", True)
 
@@ -230,7 +273,7 @@ def merge_configs(main_config: dict, local_config: Optional[dict]) -> dict:
         main_guide = main_config.get("guide", "")
         effective_guide = local_guide if local_guide else main_guide
 
-        return _create_empty_config(guide=effective_guide)
+        return _create_empty_config(guide=effective_guide, **agent_fields)
 
     # Check if keys are present (not just if arrays have items)
     main_has_allowed_key = main_config.get("has_allowed_key", False)
@@ -267,6 +310,7 @@ def merge_configs(main_config: dict, local_config: Optional[dict]) -> dict:
             guide=merged_guide,
             is_empty=False,
             has_blocked_key=True,
+            **agent_fields,
         )
 
     if main_has_allowed_key or local_has_allowed_key:
@@ -280,9 +324,10 @@ def merge_configs(main_config: dict, local_config: Optional[dict]) -> dict:
             guide=merged_guide,
             is_empty=False,
             has_allowed_key=True,
+            **agent_fields,
         )
 
-    return _create_empty_config(guide=merged_guide)
+    return _create_empty_config(guide=merged_guide, **agent_fields)
 
 
 def get_full_path(path: str) -> str:
@@ -300,6 +345,7 @@ def _merge_hierarchical_configs(child_config: dict, parent_config: dict) -> dict
     - Blocked patterns are combined (union) from both levels
     - Allowed patterns: child completely overrides parent (no inheritance)
     - Guide: child guide takes precedence over parent guide
+    - Agent fields: child overrides parent (if child has the key)
     """
     if not parent_config:
         return child_config
@@ -312,6 +358,9 @@ def _merge_hierarchical_configs(child_config: dict, parent_config: dict) -> dict
     if parent_config.get("has_error"):
         return parent_config
 
+    # Child overrides parent for agent fields
+    agent_fields = _merge_agent_fields(child_config, parent_config)
+
     child_empty = child_config.get("is_empty", True)
     parent_empty = parent_config.get("is_empty", True)
 
@@ -321,7 +370,7 @@ def _merge_hierarchical_configs(child_config: dict, parent_config: dict) -> dict
 
     # If child is empty (block all), it takes precedence over everything
     if child_empty:
-        return _create_empty_config(guide=merged_guide)
+        return _create_empty_config(guide=merged_guide, **agent_fields)
 
     # Child has specific patterns - check what modes are being used
     child_has_allowed = child_config.get("has_allowed_key", False)
@@ -337,6 +386,7 @@ def _merge_hierarchical_configs(child_config: dict, parent_config: dict) -> dict
             guide=merged_guide,
             is_empty=False,
             has_allowed_key=True,
+            **agent_fields,
         )
 
     # Child has blocked patterns - merge with parent's blocked patterns
@@ -351,6 +401,7 @@ def _merge_hierarchical_configs(child_config: dict, parent_config: dict) -> dict
                 guide=merged_guide,
                 is_empty=False,
                 has_blocked_key=True,
+                **agent_fields,
             )
 
         # Check for mode mixing
@@ -380,6 +431,7 @@ def _merge_hierarchical_configs(child_config: dict, parent_config: dict) -> dict
                 guide=merged_guide,
                 is_empty=False,
                 has_blocked_key=True,
+                **agent_fields,
             )
 
         # Parent has no blocked patterns, just use child's
@@ -388,6 +440,7 @@ def _merge_hierarchical_configs(child_config: dict, parent_config: dict) -> dict
             guide=merged_guide,
             is_empty=False,
             has_blocked_key=True,
+            **agent_fields,
         )
 
     # Child has no patterns but is not empty (shouldn't happen, but handle gracefully)
@@ -398,6 +451,7 @@ def _merge_hierarchical_configs(child_config: dict, parent_config: dict) -> dict
             guide=merged_guide,
             is_empty=False,
             has_allowed_key=True,
+            **agent_fields,
         )
 
     if parent_has_blocked:
@@ -406,9 +460,122 @@ def _merge_hierarchical_configs(child_config: dict, parent_config: dict) -> dict
             guide=merged_guide,
             is_empty=False,
             has_blocked_key=True,
+            **agent_fields,
         )
 
-    return _create_empty_config(guide=merged_guide)
+    return _create_empty_config(guide=merged_guide, **agent_fields)
+
+
+def _config_has_agent_rules(config: dict) -> bool:
+    """Check if config has any agent-scoping rules."""
+    return bool(config.get("has_agents_key", False)) or bool(config.get("has_disable_main_agent_key", False))
+
+
+def _tool_use_id_in_transcript(transcript_path: str, tool_use_id: str) -> bool:
+    """Check if a tool_use_id appears in a transcript file (simple string search)."""
+    try:
+        with open(transcript_path, encoding="utf-8") as f:
+            for line in f:
+                if tool_use_id in line:
+                    return True
+    except OSError:
+        pass
+    return False
+
+
+def resolve_agent_type(data: dict) -> Optional[str]:
+    """Resolve the agent type for the current tool invocation.
+
+    Returns the agent_type string if invoked by a subagent, or None for the main agent.
+    Uses the tracking file and transcript search to correlate tool_use_id to an agent.
+    """
+    tool_use_id = data.get("tool_use_id", "")
+    transcript_path = data.get("transcript_path", "")
+
+    if not tool_use_id or not transcript_path:
+        return None
+
+    # Derive tracking file path: {dirname(transcript_path)}/subagents/.agent_types.json
+    transcript_dir = os.path.dirname(transcript_path)
+    tracking_file = os.path.join(transcript_dir, "subagents", ".agent_types.json")
+
+    if not os.path.isfile(tracking_file):
+        return None
+
+    try:
+        with open(tracking_file, encoding="utf-8") as f:
+            agent_map = json.loads(f.read())
+    except (OSError, json.JSONDecodeError):
+        return None
+
+    if not isinstance(agent_map, dict) or not agent_map:
+        return None
+
+    # Search each active subagent's transcript for our tool_use_id
+    for agent_id, agent_type in agent_map.items():
+        # Subagent transcript: {transcript_dir}/subagents/{agent_id}.jsonl
+        subagent_transcript = os.path.join(transcript_dir, "subagents", f"{agent_id}.jsonl")
+        if _tool_use_id_in_transcript(subagent_transcript, tool_use_id):
+            return str(agent_type)
+
+    return None
+
+
+def should_apply_to_agent(config: dict, agent_type: Optional[str]) -> bool:
+    """Determine if blocking rules should apply given the agent type.
+
+    agent_type is None for the main agent, or a string like "TestCreator" for subagents.
+
+    Truth table ("Skipped" = this .block file is skipped, others may still block):
+    | Config                                     | Main agent | Listed subagents | Other subagents |
+    |--------------------------------------------|-----------|-----------------|-----------------|
+    | No agents, no disable_main_agent           | Blocked   | Blocked         | Blocked         |
+    | agents: ["TestCreator"]                    | Skipped   | Blocked         | Skipped         |
+    | disable_main_agent: true                   | Skipped   | Blocked         | Blocked         |
+    | agents: ["TestCreator"] + disable: true    | Skipped   | Blocked         | Skipped         |
+    | agents: []                                 | Skipped   | Skipped         | Skipped         |
+    """
+    has_agents_key = config.get("has_agents_key", False)
+    has_disable_key = config.get("has_disable_main_agent_key", False)
+    agents_list = config.get("agents")
+    disable_main = config.get("disable_main_agent", False)
+
+    # No agent-scoping keys at all → apply to everyone (backward compat)
+    if not has_agents_key and not has_disable_key:
+        return True
+
+    is_main = agent_type is None
+
+    if is_main:
+        # Main agent is exempt when agents key is present (agent rules target subagents)
+        if has_agents_key:
+            return False
+        # Main agent is exempt if disable_main_agent is true
+        return not (has_disable_key and disable_main)
+
+    # Subagent
+    if has_agents_key:
+        # agents key present → only listed subagents are blocked
+        if agents_list is None:
+            agents_list = []
+        return agent_type in agents_list
+
+    # No agents key, but disable_main_agent key → all subagents blocked
+    return True
+
+
+def _agent_exempt(config: dict, data: dict, agent_state: dict) -> bool:
+    """Check if the current agent is exempt from this config's rules.
+
+    agent_state is a mutable dict with 'resolved' and 'type' keys used as a lazy cache.
+    Returns True if the agent is exempt (should NOT be blocked).
+    """
+    if not _config_has_agent_rules(config):
+        return False
+    if not agent_state["resolved"]:
+        agent_state["type"] = resolve_agent_type(data)
+        agent_state["resolved"] = True
+    return not should_apply_to_agent(config, agent_state["type"])
 
 
 def test_directory_protected(file_path: str) -> Optional[dict]:
@@ -907,6 +1074,9 @@ def main():
     else:
         sys.exit(0)
 
+    # Lazy agent resolution: resolved once when first needed, cached for all paths
+    agent_state = {"resolved": False, "type": None}
+
     for path in paths_to_check:
         if not path:
             continue
@@ -919,20 +1089,16 @@ def main():
         protection_info = test_directory_protected(path)
 
         if protection_info:
+            config = protection_info["config"]
             target_file = protection_info["target_file"]
             marker_path = protection_info["marker_path"]
 
-            block_result = test_should_block(target_file, protection_info)
-
-            should_block = block_result["should_block"]
-            is_config_error = block_result["is_config_error"]
-            reason = block_result["reason"]
-            result_guide = block_result["guide"]
-
-            if is_config_error:
-                block_config_error(marker_path, reason)
-            elif should_block:
-                block_with_message(target_file, marker_path, reason, result_guide)
+            if not _agent_exempt(config, data, agent_state):
+                block_result = test_should_block(target_file, protection_info)
+                if block_result["is_config_error"]:
+                    block_config_error(marker_path, block_result["reason"])
+                elif block_result["should_block"]:
+                    block_with_message(target_file, marker_path, block_result["reason"], block_result["guide"])
 
         # Check if path targets a directory with its own or descendant .block files.
         # test_directory_protected() uses dirname() which may skip the target
@@ -942,7 +1108,7 @@ def main():
         if os.path.isdir(full_path):
             # Check the target directory itself for .block files.
             dir_info = get_merged_dir_config(full_path)
-            if dir_info:
+            if dir_info and not _agent_exempt(dir_info["config"], data, agent_state):
                 guide = dir_info["config"].get("guide", "")
                 block_with_message(
                     full_path, dir_info["marker_path"],
@@ -954,7 +1120,7 @@ def main():
             if descendant_marker:
                 marker_dir = os.path.dirname(descendant_marker)
                 desc_info = get_merged_dir_config(marker_dir)
-                if desc_info:
+                if desc_info and not _agent_exempt(desc_info["config"], data, agent_state):
                     guide = desc_info["config"].get("guide", "")
                     block_with_message(
                         full_path, desc_info["marker_path"],
