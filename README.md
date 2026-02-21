@@ -142,20 +142,18 @@ Keep Claude focused on specific directories during feature work:
 
 ### Agent-Specific Rules (Claude Code only)
 
-Scope protection to specific subagent types. This is useful when you want to block certain subagents from modifying files, while allowing the main agent and other subagent types to operate freely.
+Scope protection to specific subagent types. For example, only allow a TDD agent to write test files:
 
-Block only specific subagent types:
-
-```json
-{
-  "agents": ["Explore"],
-  "disable_main_agent": true
-}
 ```
+tests/
+└── .block      → {"agents": ["TDD_agent"], "disable_main_agent": true}
+```
+
+This blocks all subagents except `TDD_agent` from writing to `tests/`, while the main agent is also exempt.
 
 | Key | Type | Description |
 |-----|------|-------------|
-| `agents` | `string[]` | Subagent types to block (e.g. `"Explore"`, `"Plan"`, `"Bash"`) |
+| `agents` | `string[]` | Subagent types to block (e.g. `"TDD_agent"`, `"Bash"`) |
 | `disable_main_agent` | `bool` | When `true`, the main agent is exempt from blocking |
 
 **Truth table:**
@@ -163,7 +161,7 @@ Block only specific subagent types:
 | Config | Main agent | Listed subagents | Other subagents |
 |--------|-----------|-----------------|-----------------|
 | No agent keys | Blocked | Blocked | Blocked |
-| `agents: ["Explore"]` | Blocked | Blocked | Allowed |
+| `agents: ["TDD_agent"]` | Blocked | Blocked | Allowed |
 | `disable_main_agent: true` | Allowed | Blocked | Blocked |
 | Both keys set | Allowed | Blocked | Allowed |
 | `agents: []` | Blocked | Allowed | Allowed |
