@@ -27,9 +27,6 @@ def _lock_file(f):
     try:
         if sys.platform == "win32":
             import msvcrt
-            # Ensure file has content to lock against
-            f.write(" ")
-            f.flush()
             f.seek(0)
             # LK_LOCK only retries for 1 second; use LK_NBLCK with our own
             # retry loop for a longer timeout to handle slow CI environments
@@ -87,8 +84,7 @@ def _write_tracking_file(tracking_path: str, agent_map: dict) -> None:
 
     lock_path = tracking_path + ".lock"
     try:
-        with open(lock_path, "a+", encoding="utf-8") as lock_f:
-            lock_f.seek(0)
+        with open(lock_path, "a+b") as lock_f:
             _lock_file(lock_f)
             try:
                 # Re-read inside lock to avoid races
@@ -110,8 +106,7 @@ def _remove_from_tracking_file(tracking_path: str, agent_id: str) -> None:
 
     lock_path = tracking_path + ".lock"
     try:
-        with open(lock_path, "a+", encoding="utf-8") as lock_f:
-            lock_f.seek(0)
+        with open(lock_path, "a+b") as lock_f:
             _lock_file(lock_f)
             try:
                 current = _read_tracking_file(tracking_path)
