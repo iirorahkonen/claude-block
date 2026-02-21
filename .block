@@ -1,4 +1,4 @@
 {
-  "blocked": [".claude-plugin/plugin.json"],
+  "blocked": [".claude-plugin/plugin.json", "opencode/package.json"],
   "guide": "The CI pipeline updates the plugin version - do not modify manually."
 }

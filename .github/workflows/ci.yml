@@ -469,11 +469,27 @@ jobs:
               f.write('\n')
           "
 
+      - name: Update CHANGELOG version
+        run: |
+          python -c "
+          import datetime, pathlib, sys
+          version = '${{ needs.version.outputs.majorMinorPatch }}'
+          today = datetime.date.today().strftime('%Y-%m-%d')
+          p = pathlib.Path('CHANGELOG.md')
+          text = p.read_text(encoding='utf-8')
+          if '## Unreleased' not in text:
+              print('No ## Unreleased section found, skipping')
+              sys.exit(0)
+          text = text.replace('## Unreleased', f'## v{version} ({today})', 1)
+          p.write_text(text, encoding='utf-8')
+          print(f'Updated CHANGELOG.md: ## Unreleased -> ## v{version} ({today})')
+          "
+
       - name: Commit and tag
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add .claude-plugin/plugin.json opencode/package.json
+          git add .claude-plugin/plugin.json opencode/package.json CHANGELOG.md
           git commit -m "Bump version to ${{ needs.version.outputs.majorMinorPatch }}"
           git push origin main
           git tag -a "v${{ needs.version.outputs.majorMinorPatch }}" -m "Release v${{ needs.version.outputs.majorMinorPatch }}"
