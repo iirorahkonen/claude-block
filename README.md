@@ -142,19 +142,19 @@ Keep Claude focused on specific directories during feature work:
 
 ### Agent-Specific Rules (Claude Code only)
 
-Scope protection to specific subagent types. For example, only allow a test-writing agent to modify test files:
+Scope protection to specific subagent types. For example, block a code-review agent from modifying source files:
 
-```
-tests/
-└── .block      → {"agents": ["TestCreator"]}
+```text
+src/
+└── .block      → {"agents": ["code-reviewer"]}
 ```
 
-This blocks all subagents except `TestCreator` from writing to `tests/`. The main agent is automatically exempt when `agents` is set.
+This blocks the `code-reviewer` subagent from writing to `src/`. Other subagents and the main agent are unaffected — the `.block` file is skipped for them.
 
 | Key | Type | Description |
 |-----|------|-------------|
-| `agents` | `string[]` | Subagent types to block. Main agent is exempt by default. |
-| `disable_main_agent` | `bool` | When `true`, the main agent is exempt from blocking (for use without `agents`) |
+| `agents` | `string[]` | Subagent types this `.block` file applies to (others are skipped). Main agent is always skipped. |
+| `disable_main_agent` | `bool` | When `true`, the main agent is skipped (for use without `agents`) |
 
 **Truth table:**
 

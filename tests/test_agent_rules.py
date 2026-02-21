@@ -31,6 +31,7 @@ _spec = importlib.util.spec_from_file_location(
     "protect_directories",
     str(Path(__file__).parent.parent / "hooks" / "protect_directories.py"),
 )
+assert _spec is not None and _spec.loader is not None, "Failed to load protect_directories.py"
 _pd = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_pd)
 

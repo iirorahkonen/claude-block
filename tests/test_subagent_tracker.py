@@ -26,6 +26,7 @@ def run_tracker(hooks_dir: Path, input_json: str) -> tuple:
         input=input_json,
         capture_output=True,
         text=True,
+        timeout=10,
     )
     return result.returncode, result.stdout, result.stderr
 
